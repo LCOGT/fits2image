@@ -1,4 +1,5 @@
 import logging
+import os
 
 from PIL import ImageFont, ImageDraw, Image
 
@@ -28,9 +29,13 @@ def _add_label(image, label_text, label_font):
 
 
 def fits_to_jpg(path_to_fits, path_to_jpg, width=200, height=200, progressive=False, label_text='', label_font='DejaVuSansMono.ttf',
-                zmin=None, zmax=None, gamma_adjust=2.5, contrast=0.1):
+                zmin=None, zmax=None, gamma_adjust=2.5, contrast=0.1, quality=95):
     '''Create a jpg from a fits file
     '''
+    if not os.path.exists(path_to_fits):
+        logging.warning('fits file {} does not exist'.format(path_to_fits))
+        return False
+
     im = get_scaled_image(path_to_fits, zmin=zmin, zmax=zmax, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True)
     im.thumbnail((width, height), Image.ANTIALIAS)
     if label_text:
@@ -40,14 +45,23 @@ def fits_to_jpg(path_to_fits, path_to_jpg, width=200, height=200, progressive=Fa
             # just log a warning and continue - its okay if you cant write a label
             logging.warning('font {} could not be found on the system. Ignoring label text.'.format(label_font))
 
-    im.save(path_to_jpg, 'jpeg', quality=95, progressive=progressive)
+    try:
+        im.save(path_to_jpg, 'jpeg', quality=quality, progressive=progressive)
+    except IOError:
+        logging.warning('Error saving jpeg: {}'.format(path_to_jpg))
+        return False
+    return True
 
 
 def fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200, zlevel=0, zfactor=1.25, progressive=False,
                            label_text='', label_font='DejaVuSansMono.ttf', zmin=None, zmax=None, gamma_adjust=2.5,
-                           contrast=0.1):
+                           contrast=0.1, quality=75):
     '''Create a slice of a zoomed in jpg from a fits file
     '''
+    if not os.path.exists(path_to_fits):
+        logging.warning('fits file {} does not exist'.format(path_to_fits))
+        return False
+
     im = get_scaled_image(path_to_fits, zmin=zmin, zmax=zmax, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True)
     height = side
     width = side
@@ -66,4 +80,9 @@ def fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200, zl
             # just log a warning and continue - its okay if you cant write a label
             logging.warning('font {} could not be found on the system. Ignoring label text.'.format(label_font))
 
-    im.save(path_to_jpg, 'jpeg', quality=75, progressive=progressive)
+    try:
+        im.save(path_to_jpg, 'jpeg', quality=quality, progressive=progressive)
+    except IOError:
+        logging.warning('Error saving jpeg: {}'.format(path_to_jpg))
+        return False
+    return True
