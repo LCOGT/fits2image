@@ -1,4 +1,5 @@
 import math
+import logging
 
 import fitsio
 import numpy as np
@@ -131,6 +132,12 @@ def linear_scale(data, zmin, zmax, max_val=255, gamma_adjust=2.5):
     '''Apply a linear rescale of the supplied fits images cliping between
     zmin and zmax and writing to the supplied outfile.
     '''
+    if zmax == zmin:
+        # This will produce bad images, but its better than crashing with divide by zero error
+        logging.warning("Calculated same zmax and zmin. Using zmax=zmax+1, zmin=zmin-1 instead. Image may look bad.")
+        zmax = zmax + 1
+        zmin = zmin - 1
+
     scale = float(max_val) / (float(zmax) - float(zmin))
     adjust = scale * zmin
 

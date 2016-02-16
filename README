@@ -6,3 +6,4 @@ v 0.1.0 - Initial version with conversion code from frame_database
 v 0.1.1 - Changed the fits_to_* functions to return False if they fail (and log warnings), otherwise return True
         - Added a quality parameter for jpeg conversion quality for fits_to_* functions
 v 0.1.2 - Changed behaviour to automatically use the first quadrant of a data cube, instead of crashing
+v 0.1.3 - If zmax/zmin calculated to be the same, give them a slit offset to avoid dividing by zero
