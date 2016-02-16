@@ -16,7 +16,8 @@ def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adj
     :return:
     '''
     if zmin or zmax:
-        scaled_data = linear_scale(path_to_fits, zmin, zmax, gamma_adjust=gamma_adjust)
+        data, header = get_reduced_dimensionality_data(path_to_fits)
+        scaled_data = linear_scale(data, zmin, zmax, gamma_adjust=gamma_adjust)
     else:
         scaled_data = auto_scale(path_to_fits, contrast=contrast, gamma_adjust=gamma_adjust)
     im = Image.fromarray(scaled_data)
@@ -96,15 +97,14 @@ def least_squares_line_fit(sample_data, max_iterations=5, min_fit=0.5):
     return last_fit
 
 
-def extract_samples(path_to_frame, nsamples=2000):
+def extract_samples(data, header, nsamples=2000):
     ''' Extract a set of samples from a fits image and
     return a sorted numpy array of results
     '''
-    data, header = fitsio.read(path_to_frame, header=True, mode='r')
-    data = data.flatten()
+    flat_data = data.flatten()
 
     sample_stride = (header.get('NAXIS1') * header.get('NAXIS2')) / nsamples
-    samples = data[sample_stride::sample_stride]
+    samples = flat_data[sample_stride::sample_stride]
     samples.sort()
 
     return samples
@@ -127,14 +127,13 @@ def calc_zscale_min_max(samples, contrast= 0.1, iterations=5):
     return zmin, zmax, rms
 
 
-def linear_scale(path_to_frame, zmin, zmax, max_val=255, gamma_adjust=2.5):
+def linear_scale(data, zmin, zmax, max_val=255, gamma_adjust=2.5):
     '''Apply a linear rescale of the supplied fits images cliping between
     zmin and zmax and writing to the supplied outfile.
     '''
     scale = float(max_val) / (float(zmax) - float(zmin))
     adjust = scale * zmin
 
-    data, header = fitsio.read(path_to_frame, header=True)
     data = data.astype('float')
     data.clip(zmin, zmax, data)
     data *= scale
@@ -163,11 +162,24 @@ def auto_scale(path_to_frame, nsamples=2000, max_val=255, contrast=0.1, gamma_ad
     '''Uses a zscale fit and rescales the image accordingly by calling
     linear scale
     '''
-    samples = extract_samples(path_to_frame, nsamples)
+    data, header = get_reduced_dimensionality_data(path_to_frame)
+    samples = extract_samples(data, header, nsamples)
     median = np.median(samples)
     zmin, zmax, rms = calc_zscale_min_max(samples, contrast=contrast, iterations=max_fit_iterations)
     print {'median':median, 'zmin':zmin, 'zmax':zmax, 'fit_rms':rms}
-    return linear_scale(path_to_frame, median, zmax, max_val, gamma_adjust)
+    return linear_scale(data, median, zmax, max_val, gamma_adjust)
+
+
+def get_reduced_dimensionality_data(path_to_frame):
+    '''
+    Reduce the dimensionality of the data by 1. For sinistro images, this will give the first quadrant
+    :param path_to_frame: path to fits file
+    :return: header and modified data from fitsio
+    '''
+    data, header = fitsio.read(path_to_frame, header=True, mode='r')
+    while len(data.shape) > 2:
+        data = data[0]
+    return data, header
 
 
 def percentile_scale(path_to_frame, lower_percentile=5.0, upper_percentile=99.0):
