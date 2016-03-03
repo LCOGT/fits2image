@@ -46,6 +46,8 @@ def fits_to_jpg(path_to_fits, path_to_jpg, width=200, height=200, progressive=Fa
             logging.warning('font {} could not be found on the system. Ignoring label text.'.format(label_font))
 
     try:
+        if not os.path.exists(path_to_jpg):
+            os.makedirs(path_to_jpg)
         im.save(path_to_jpg, 'jpeg', quality=quality, progressive=progressive)
     except IOError as ioerr:
         logging.warning('Error saving jpeg: {}. Reason: {}'.format(path_to_jpg, str(ioerr)))
@@ -81,6 +83,8 @@ def fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200, zl
             logging.warning('font {} could not be found on the system. Ignoring label text.'.format(label_font))
 
     try:
+        if not os.path.exists(path_to_jpg):
+            os.makedirs(path_to_jpg)
         im.save(path_to_jpg, 'jpeg', quality=quality, progressive=progressive)
     except IOError as ioerr:
         logging.warning('Error saving jpeg: {}. Reason: {}'.format(path_to_jpg, str(ioerr)))
