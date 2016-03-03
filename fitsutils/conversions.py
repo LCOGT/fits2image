@@ -47,8 +47,8 @@ def fits_to_jpg(path_to_fits, path_to_jpg, width=200, height=200, progressive=Fa
 
     try:
         im.save(path_to_jpg, 'jpeg', quality=quality, progressive=progressive)
-    except IOError:
-        logging.warning('Error saving jpeg: {}'.format(path_to_jpg))
+    except IOError as ioerr:
+        logging.warning('Error saving jpeg: {}. Reason: {}'.format(path_to_jpg, str(ioerr)))
         return False
     return True
 
@@ -82,7 +82,7 @@ def fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200, zl
 
     try:
         im.save(path_to_jpg, 'jpeg', quality=quality, progressive=progressive)
-    except IOError:
-        logging.warning('Error saving jpeg: {}'.format(path_to_jpg))
+    except IOError as ioerr:
+        logging.warning('Error saving jpeg: {}. Reason: {}'.format(path_to_jpg, str(ioerr)))
         return False
     return True
