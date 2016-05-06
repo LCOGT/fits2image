@@ -5,7 +5,6 @@ import fitsio
 import numpy as np
 from PIL import Image
 
-
 def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adjust=2.5, flip_v=True):
     ''' Helper function to get a scaled PIL Image given a fits or compressed fits file path and scale parameters
     :param path_to_fits:
@@ -114,7 +113,6 @@ def extract_samples(data, header, nsamples=2000):
 def calc_zscale_min_max(samples, contrast= 0.1, iterations=5):
     nsamples = len(samples)
     slope, y_intecept, used_iterations, nfitsamples, rms, fit_samples = least_squares_line_fit(samples, max_iterations=iterations)
-    print slope, y_intecept, used_iterations, nfitsamples, rms
 
     zmin = samples[0]
     zmax = samples[nsamples - 1]
@@ -159,7 +157,7 @@ def gamma_adjust_table(dtype, max_val=255.0, min_val=0.0, gamma_adjust=2.5):
     '''Creates a lookup table for a gamma adjustment
     '''
     size = int(max_val) - int(min_val) + 1
-    gamma_lookup_table = xrange(size)
+    gamma_lookup_table = range(size)
     gamma_lookup_table = [int(size * (math.pow(float(i)/float(size), 1.0/float(gamma_adjust)))) for i in gamma_lookup_table]
 
     return np.array(gamma_lookup_table, dtype=dtype)
@@ -173,7 +171,6 @@ def auto_scale(path_to_frame, nsamples=2000, max_val=255, contrast=0.1, gamma_ad
     samples = extract_samples(data, header, nsamples)
     median = np.median(samples)
     zmin, zmax, rms = calc_zscale_min_max(samples, contrast=contrast, iterations=max_fit_iterations)
-    print {'median':median, 'zmin':zmin, 'zmax':zmax, 'fit_rms':rms}
     return linear_scale(data, median, zmax, max_val, gamma_adjust)
 
 
