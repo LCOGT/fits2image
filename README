@@ -1,6 +1,6 @@
-fits-utils - Shared library for converting fits files to jpeg, scaling them, etc
+fits2image - Shared library for converting fits files to jpeg, scaling them, etc
 
-The fits-utils package provides common libraries for the frame_database and telops
+The fits2image package provides common libraries for the frame_database and telops
 
 v 0.1.0 - Initial version with conversion code from frame_database
 v 0.1.1 - Changed the fits_to_* functions to return False if they fail (and log warnings), otherwise return True

@@ -3,7 +3,7 @@ import os
 
 from PIL import ImageFont, ImageDraw, Image
 
-from fitsutils.scaling import get_scaled_image
+from fits2image.scaling import get_scaled_image
 
 
 def _add_label(image, label_text, label_font):
