@@ -2,6 +2,7 @@ import math
 import logging
 
 import fitsio
+from astroscrappy import detect_cosmics
 import numpy as np
 from PIL import Image
 
@@ -20,12 +21,39 @@ def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adj
         scaled_data = linear_scale(data, zmin, zmax, gamma_adjust=gamma_adjust)
     else:
         scaled_data = auto_scale(path_to_fits, contrast=contrast, gamma_adjust=gamma_adjust)
+    scaled_data = remove_cr(scaled_data)
     im = Image.fromarray(scaled_data)
     if flip_v:
         im = im.transpose(Image.FLIP_TOP_BOTTOM)
 
     return im
 
+def get_scaled_image_stack(fits_list, zmin=None, zmax=None, contrast=0.1, gamma_adjust=2.5, flip_v=True):
+    '''
+    Helper function to get a scaled PIL Image given a list of fits or list of
+    compressed fits file path and scale parameters
+    :param fits_list: List of FITS files in RGB order
+    :param zmin:
+    :param zmax:
+    :param contrast:
+    :param gamma_adjust:
+    :param flip_v: Should the image be flipped vertically?
+    :return:
+    '''
+    rgb_array = np.zeros((1056,1568,3), 'uint8')
+    for path_to_fits in fits_list:
+        i = fits_list.index(path_to_fits)
+        if zmin or zmax:
+            data, header = get_reduced_dimensionality_data(path_to_fits)
+            scaled_data = linear_scale(data, zmin, zmax, gamma_adjust=gamma_adjust)
+        else:
+            scaled_data = auto_scale(path_to_fits, contrast=contrast, gamma_adjust=gamma_adjust)
+        scaled_data = remove_cr(scaled_data)
+        rgb_array[..., i] = scaled_data*256
+    im = Image.fromarray(rgb_array)
+    if flip_v:
+        im = im.transpose(Image.FLIP_TOP_BOTTOM)
+    return im
 
 def simple_line_fit(sample_data):
     nsamples = len(sample_data)
@@ -203,3 +231,10 @@ def percentile_scale(path_to_frame, lower_percentile=5.0, upper_percentile=99.0)
     data[data > 255] = 255
     data = data.astype('uint8')
     return data
+
+def remove_cr(data):
+    '''
+    Removes high value pixels which are presumed to be cosmic ray hits.
+    '''
+    m, imdata = detect_cosmics(data, readnoise=20., gain=1.4, sigclip=5., sigfrac=.5, objlim=6.)
+    return imdata
