@@ -40,7 +40,8 @@ def get_scaled_image_stack(fits_list, zmin=None, zmax=None, contrast=0.1, gamma_
     :param flip_v: Should the image be flipped vertically?
     :return:
     '''
-    rgb_array = np.zeros((1056,1568,3), 'uint8')
+
+    rgb_list = []
     for path_to_fits in fits_list:
         i = fits_list.index(path_to_fits)
         if zmin or zmax:
@@ -49,8 +50,10 @@ def get_scaled_image_stack(fits_list, zmin=None, zmax=None, contrast=0.1, gamma_
         else:
             scaled_data = auto_scale(path_to_fits, contrast=contrast, gamma_adjust=gamma_adjust)
         scaled_data = remove_cr(scaled_data)
-        rgb_array[..., i] = scaled_data*256
-    im = Image.fromarray(rgb_array)
+        scaled_data = scale_data(scaled_data,i)
+        rgb_list.append(scaled_data)
+    rgb_cube = np.dstack(rgb_list).astype(np.uint8)  # make cube
+    im = Image.fromarray(rgb_cube)
     if flip_v:
         im = im.transpose(Image.FLIP_TOP_BOTTOM)
     return im
@@ -238,3 +241,19 @@ def remove_cr(data):
     '''
     m, imdata = detect_cosmics(data, readnoise=20., gain=1.4, sigclip=5., sigfrac=.5, objlim=6.)
     return imdata
+
+def scale_data(data, i):
+    # Recalculate the median
+    logging.warning('--- Begin Scaling ---')
+    data[data<0.]=0.
+    median = np.median(data)
+    data-= median
+    data[data<0.]=0.
+    sc_data= data #np.arcsinh(data)
+    max_val = np.percentile(sc_data,99.5)
+    logging.warning('99.5 =%s' % max_val)
+    scaled = sc_data*255./(max_val)
+    scaled[scaled>255.]=255.
+    logging.warning('Median of scaled=%s' % np.median(scaled))
+    logging.warning('Min scaled=%s' % scaled.min())
+    return scaled
