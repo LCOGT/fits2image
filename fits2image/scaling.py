@@ -31,7 +31,6 @@ def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adj
 
 
 def stack_images(images_to_stack):
-    logging.warning('starting stack images')
     rgb_cube = np.dstack(images_to_stack).astype(np.uint8)
     return Image.fromarray(rgb_cube)
 
