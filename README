@@ -9,3 +9,5 @@ v 0.1.2 - Changed behaviour to automatically use the first quadrant of a data cu
 v 0.1.3 - If zmax/zmin calculated to be the same, give them a slit offset to avoid dividing by zero
 v 0.1.4 - Check if path exists and create it if not before saving file with pillow.
 v 0.1.5 - Fix problem creating paths
+v 0.2.0 - Add color image support. fits_2_image now accepts list of images, and if will stack them if the list
+is of length 3 and the color=True parameter is set. Expects order to be RVB.
