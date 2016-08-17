@@ -6,6 +6,7 @@ from astroscrappy import detect_cosmics
 import numpy as np
 from PIL import Image
 
+
 def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adjust=2.5, flip_v=True):
     ''' Helper function to get a scaled PIL Image given a fits or compressed fits file path and scale parameters
     :param path_to_fits:
@@ -22,41 +23,18 @@ def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adj
     else:
         scaled_data = auto_scale(path_to_fits, contrast=contrast, gamma_adjust=gamma_adjust)
     scaled_data = remove_cr(scaled_data)
+    scaled_data = recalculate_median(scaled_data)
     im = Image.fromarray(scaled_data)
     if flip_v:
         im = im.transpose(Image.FLIP_TOP_BOTTOM)
-
     return im
 
-def get_scaled_image_stack(fits_list, zmin=None, zmax=None, contrast=0.1, gamma_adjust=2.5, flip_v=True):
-    '''
-    Helper function to get a scaled PIL Image given a list of fits or list of
-    compressed fits file path and scale parameters
-    :param fits_list: List of FITS files in RGB order
-    :param zmin:
-    :param zmax:
-    :param contrast:
-    :param gamma_adjust:
-    :param flip_v: Should the image be flipped vertically?
-    :return:
-    '''
 
-    rgb_list = []
-    for path_to_fits in fits_list:
-        i = fits_list.index(path_to_fits)
-        if zmin or zmax:
-            data, header = get_reduced_dimensionality_data(path_to_fits)
-            scaled_data = linear_scale(data, zmin, zmax, gamma_adjust=gamma_adjust)
-        else:
-            scaled_data = auto_scale(path_to_fits, contrast=contrast, gamma_adjust=gamma_adjust)
-        scaled_data = remove_cr(scaled_data)
-        scaled_data = scale_data(scaled_data,i)
-        rgb_list.append(scaled_data)
-    rgb_cube = np.dstack(rgb_list).astype(np.uint8)  # make cube
-    im = Image.fromarray(rgb_cube)
-    if flip_v:
-        im = im.transpose(Image.FLIP_TOP_BOTTOM)
-    return im
+def stack_images(images_to_stack):
+    logging.warning('starting stack images')
+    rgb_cube = np.dstack(images_to_stack).astype(np.uint8)
+    return Image.fromarray(rgb_cube)
+
 
 def simple_line_fit(sample_data):
     nsamples = len(sample_data)
@@ -242,18 +220,13 @@ def remove_cr(data):
     m, imdata = detect_cosmics(data, readnoise=20., gain=1.4, sigclip=5., sigfrac=.5, objlim=6.)
     return imdata
 
-def scale_data(data, i):
-    # Recalculate the median
-    logging.warning('--- Begin Scaling ---')
-    data[data<0.]=0.
+
+def recalculate_median(data):
+    data[data < 0.] = 0.
     median = np.median(data)
-    data-= median
-    data[data<0.]=0.
-    sc_data= data #np.arcsinh(data)
-    max_val = np.percentile(sc_data,99.5)
-    logging.warning('99.5 =%s' % max_val)
-    scaled = sc_data*255./(max_val)
-    scaled[scaled>255.]=255.
-    logging.warning('Median of scaled=%s' % np.median(scaled))
-    logging.warning('Min scaled=%s' % scaled.min())
+    data -= median
+    data[data < 0.] = 0.
+    max_val = np.percentile(data, 99.5)
+    scaled = data*255./(max_val)
+    scaled[scaled > 255.] = 255.
     return scaled

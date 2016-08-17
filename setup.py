@@ -33,5 +33,5 @@ setup(
     author='Jon Nation',
     author_email='jnation@lcogt.net',
     packages=find_packages('.', exclude=[]),
-    install_requires=['fitsio', 'Pillow'],
+    install_requires=['numpy', 'fitsio', 'Pillow', 'astroscrappy']
 )
