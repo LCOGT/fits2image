@@ -2,8 +2,10 @@ import math
 import logging
 
 import fitsio
+from astroscrappy import detect_cosmics
 import numpy as np
 from PIL import Image
+
 
 def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adjust=2.5, flip_v=True):
     ''' Helper function to get a scaled PIL Image given a fits or compressed fits file path and scale parameters
@@ -20,11 +22,17 @@ def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adj
         scaled_data = linear_scale(data, zmin, zmax, gamma_adjust=gamma_adjust)
     else:
         scaled_data = auto_scale(path_to_fits, contrast=contrast, gamma_adjust=gamma_adjust)
+    scaled_data = remove_cr(scaled_data)
+    scaled_data = recalculate_median(scaled_data)
     im = Image.fromarray(scaled_data)
     if flip_v:
         im = im.transpose(Image.FLIP_TOP_BOTTOM)
-
     return im
+
+
+def stack_images(images_to_stack):
+    rgb_cube = np.dstack(images_to_stack).astype(np.uint8)
+    return Image.fromarray(rgb_cube)
 
 
 def simple_line_fit(sample_data):
@@ -203,3 +211,21 @@ def percentile_scale(path_to_frame, lower_percentile=5.0, upper_percentile=99.0)
     data[data > 255] = 255
     data = data.astype('uint8')
     return data
+
+def remove_cr(data):
+    '''
+    Removes high value pixels which are presumed to be cosmic ray hits.
+    '''
+    m, imdata = detect_cosmics(data, readnoise=20., gain=1.4, sigclip=5., sigfrac=.5, objlim=6.)
+    return imdata
+
+
+def recalculate_median(data):
+    data[data < 0.] = 0.
+    median = np.median(data)
+    data -= median
+    data[data < 0.] = 0.
+    max_val = np.percentile(data, 99.5)
+    scaled = data*255./(max_val)
+    scaled[scaled > 255.] = 255.
+    return scaled
