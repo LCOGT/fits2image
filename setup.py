@@ -27,11 +27,11 @@ DESCRIPTION = """Common libraries for the conversion and scaling of fits images"
 
 setup(
     name="fits2image",
-    version="0.2.0",
+    version="0.2.1",
     description=DESCRIPTION,
     long_description=DESCRIPTION,
     author='Jon Nation',
     author_email='jnation@lcogt.net',
     packages=find_packages('.', exclude=[]),
-    install_requires=['numpy', 'fitsio', 'Pillow', 'astroscrappy']
+    install_requires=['numpy', 'fitsio', 'Pillow']
 )

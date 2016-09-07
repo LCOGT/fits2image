@@ -11,3 +11,5 @@ v 0.1.4 - Check if path exists and create it if not before saving file with pill
 v 0.1.5 - Fix problem creating paths
 v 0.2.0 - Add color image support. fits_2_image now accepts list of images, and if will stack them if the list
 is of length 3 and the color=True parameter is set. Expects order to be RVB.
+v 0.2.1 - Remove cosmic ray removal which slows down image generation considerably and misrepresents the actual data
+        - Remove median filter which slows down image generation
