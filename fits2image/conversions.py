@@ -28,7 +28,7 @@ def _add_label(image, label_text, label_font):
 
 
 def fits_to_jpg(path_to_fits, path_to_jpg, width=200, height=200, progressive=False, label_text='', label_font='DejaVuSansMono.ttf',
-                zmin=None, zmax=None, gamma_adjust=2.5, contrast=0.1, quality=95, color=False):
+                zmin=None, zmax=None, gamma_adjust=2.5, contrast=0.1, quality=95, color=False, percentile=99.5, median=False):
     '''Create a jpg from a fits file
         :param path_to_fits a single file or list (if color=True)
     '''
@@ -41,7 +41,7 @@ def fits_to_jpg(path_to_fits, path_to_jpg, width=200, height=200, progressive=Fa
             logging.error('Path {} does not exist'.format(path))
             return False
         scaled_images.append(
-            get_scaled_image(path, zmin=zmin, zmax=zmax, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True)
+            get_scaled_image(path, zmin=zmin, zmax=zmax, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True, percentile=percentile, median=median)
         )
 
     if color:
