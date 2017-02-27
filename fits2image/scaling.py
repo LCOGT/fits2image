@@ -6,7 +6,7 @@ import numpy as np
 from PIL import Image
 
 
-def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adjust=2.5, flip_v=True):
+def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adjust=2.5, flip_v=True, percentile=99.5, median=False):
     ''' Helper function to get a scaled PIL Image given a fits or compressed fits file path and scale parameters
     :param path_to_fits:
     :param zmin:
@@ -21,6 +21,8 @@ def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adj
         scaled_data = linear_scale(data, zmin, zmax, gamma_adjust=gamma_adjust)
     else:
         scaled_data = auto_scale(path_to_fits, contrast=contrast, gamma_adjust=gamma_adjust)
+    if median:
+        scaled_data = recalculate_median(scaled_data,percentile)
     im = Image.fromarray(scaled_data)
     if flip_v:
         im = im.transpose(Image.FLIP_TOP_BOTTOM)
@@ -109,7 +111,7 @@ def extract_samples(data, header, nsamples=2000):
     flat_data = data.flatten()
 
     sample_stride = (header.get('NAXIS1') * header.get('NAXIS2')) / nsamples
-    samples = flat_data[sample_stride::sample_stride]
+    samples = flat_data[int(sample_stride)::int(sample_stride)]
     samples.sort()
 
     return samples
@@ -208,3 +210,15 @@ def percentile_scale(path_to_frame, lower_percentile=5.0, upper_percentile=99.0)
     data[data > 255] = 255
     data = data.astype('uint8')
     return data
+
+def recalculate_median(data, percentile=99.5):
+    data = data.astype('float')
+    data[data < 0.] = 0.
+    median = np.median(data)
+    data -= median
+    data[data < 0.] = 0.
+    max_val = np.percentile(data, percentile)
+    scaled = data*255./(max_val)
+    scaled[scaled > 255.] = 255.
+    scaled = scaled.astype('uint8')
+    return scaled
