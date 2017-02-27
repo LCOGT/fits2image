@@ -111,7 +111,7 @@ def extract_samples(data, header, nsamples=2000):
     flat_data = data.flatten()
 
     sample_stride = (header.get('NAXIS1') * header.get('NAXIS2')) / nsamples
-    samples = flat_data[sample_stride::sample_stride]
+    samples = flat_data[int(sample_stride)::int(sample_stride)]
     samples.sort()
 
     return samples
