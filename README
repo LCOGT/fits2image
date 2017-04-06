@@ -14,3 +14,4 @@ is of length 3 and the color=True parameter is set. Expects order to be RVB.
 v 0.2.1 - Remove cosmic ray removal which slows down image generation considerably and misrepresents the actual data
         - Remove median filter which slows down image generation
 v 0.3.0 - Add median filter support
+v 0.3.1 - Add support for multi extension fits files

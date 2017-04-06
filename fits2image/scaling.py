@@ -187,9 +187,13 @@ def get_reduced_dimensionality_data(path_to_frame):
     :param path_to_frame: path to fits file
     :return: header and modified data from fitsio
     '''
-    data, header = fitsio.read(path_to_frame, header=True, mode='r')
-    while len(data.shape) > 2:
-        data = data[0]
+    fit = fitsio.FITS(path_to_frame, mode='r')
+    for i in range(0, len(fit)):
+        if fit[i].has_data():
+            data, header = fitsio.read(path_to_frame, header=True, mode='r', ext=i)
+            while len(data.shape) > 2:
+                data = data[0]
+    fit.close()
     return data, header
 
 
