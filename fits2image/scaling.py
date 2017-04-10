@@ -189,12 +189,13 @@ def get_reduced_dimensionality_data(path_to_frame):
     '''
     fit = fitsio.FITS(path_to_frame, mode='r')
     for i in range(0, len(fit)):
-        if fit[i].has_data():
+        if fit[i].has_data() and fit[i].get_dims()[0]:
             data, header = fitsio.read(path_to_frame, header=True, mode='r', ext=i)
-            while len(data.shape) > 2:
+            if len(data.shape) > 2:
                 data = data[0]
-    fit.close()
-    return data, header
+            fit.close()
+            return data, header
+    raise Exception('No fits data found')
 
 
 def percentile_scale(path_to_frame, lower_percentile=5.0, upper_percentile=99.0):
