@@ -1,7 +1,7 @@
 import math
 import logging
 
-import fitsio
+from astropy.io import fits
 import numpy as np
 from PIL import Image
 
@@ -185,16 +185,12 @@ def get_reduced_dimensionality_data(path_to_frame):
     '''
     Reduce the dimensionality of the data by 1. For sinistro images, this will give the first quadrant
     :param path_to_frame: path to fits file
-    :return: header and modified data from fitsio
+    :return: header and modified data from astropy.io.fits
     '''
-    fit = fitsio.FITS(path_to_frame, mode='r')
-    for i in range(0, len(fit)):
-        if fit[i].has_data() and fit[i].get_dims()[0]:
-            data, header = fitsio.read(path_to_frame, header=True, mode='r', ext=i)
-            if len(data.shape) > 2:
-                data = data[0]
-            fit.close()
-            return data, header
+    hdul = fits.open(path_to_frame)
+    for hdu in hdul:
+        if len(np.shape(hdu)) == 2:
+            return hdu.data, hdu.header
     raise Exception('No fits data found')
 
 
@@ -206,7 +202,7 @@ def percentile_scale(path_to_frame, lower_percentile=5.0, upper_percentile=99.0)
     :param upper_percentile:
     :return:
     '''
-    data = fitsio.read(path_to_frame, mode='r')
+    data = fits.getdata(path_to_frame)
     (lower_threshold, upper_threshold) = np.percentile(data, [lower_percentile, upper_percentile])
 
     data = data.astype('float')
