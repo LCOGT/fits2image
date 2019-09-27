@@ -16,3 +16,4 @@ v 0.2.1 - Remove cosmic ray removal which slows down image generation considerab
 v 0.3.0 - Add median filter support
 v 0.3.1 - Add support for multi extension fits files
 v 0.3.2 - Fix bug in multi extension fits handling
+V 0.4.0 - Use astropy instead of cfitsio
