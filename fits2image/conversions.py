@@ -37,12 +37,13 @@ def fits_to_jpg(path_to_fits, path_to_jpg, width=200, height=200, progressive=Fa
 
     scaled_images = []
     for path in path_to_fits:
-        if not os.path.exists(path):
-            logging.error('Path {} does not exist'.format(path))
+        try:
+            scaled_images.append(
+                get_scaled_image(path, zmin=zmin, zmax=zmax, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True, percentile=percentile, median=median)
+            )
+        except FileNotFoundError:
+            logging.error('File {} not found'.format(path))
             return False
-        scaled_images.append(
-            get_scaled_image(path, zmin=zmin, zmax=zmax, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True, percentile=percentile, median=median)
-        )
 
     if color:
         if len(scaled_images) != 3:
