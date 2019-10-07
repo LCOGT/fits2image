@@ -1,5 +1,6 @@
 import math
 import logging
+from pathlib import Path
 
 from astropy.io import fits
 import numpy as np
@@ -78,7 +79,7 @@ def least_squares_line_fit(sample_data, max_iterations=5, min_fit=0.5):
         y = np.array(fit_samples)
 
         A = np.vstack([x, np.ones(nfitsamples)]).T
-        result = np.linalg.lstsq(A,y)
+        result = np.linalg.lstsq(A,y, rcond=None)
         slope, y_intercept = result[0]
         residuals = result[1]
 
@@ -187,11 +188,14 @@ def get_reduced_dimensionality_data(path_to_frame):
     :param path_to_frame: path to fits file
     :return: header and modified data from astropy.io.fits
     '''
-    hdul = fits.open(path_to_frame)
-    for hdu in hdul:
-        if len(np.shape(hdu)) == 2:
-            return hdu.data, hdu.header
-    raise Exception('No fits data found')
+    if type(path_to_frame) == str:
+        path_to_frame = Path(path_to_frame)
+    with path_to_frame.open('rb') as p:
+        hdul = fits.open(p)
+        for hdu in hdul:
+            if len(np.shape(hdu)) == 2:
+                return hdu.data, hdu.header
+        raise Exception('No fits data found')
 
 
 def percentile_scale(path_to_frame, lower_percentile=5.0, upper_percentile=99.0):
