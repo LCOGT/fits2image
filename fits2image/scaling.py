@@ -191,10 +191,10 @@ def get_reduced_dimensionality_data(path_to_frame):
     if type(path_to_frame) == str:
         path_to_frame = Path(path_to_frame)
     with path_to_frame.open('rb') as p:
-        hdul = fits.open(p)
-        for hdu in hdul:
-            if len(np.shape(hdu)) == 2:
-                return hdu.data, hdu.header
+        with fits.open(p) as hdul:
+            for hdu in hdul:
+                if len(np.shape(hdu)) == 2:
+                    return hdu.data, hdu.header
         raise Exception('No fits data found')
 
 
