@@ -193,7 +193,15 @@ def get_reduced_dimensionality_data(path_to_frame):
     with path_to_frame.open('rb') as p:
         with fits.open(p) as hdul:
             for hdu in hdul:
-                if len(np.shape(hdu)) == 2:
+                '''
+                For most images the shape of first HDU data is () and the first HDU data is the 
+                dimensions of the CCD.
+                For sinistro, the first HDU data has shape (0,0) and subsequent HDUs are 1/4 of
+                the chip dimensions.
+                Therefore, just checking for a shape with 2 elements is not sufficient to identify data.
+                We also need to check for non-zero shape elements.
+                '''
+                if len(np.shape(hdu)) == 2 and np.shape(hdu)[0] > 0:
                     return hdu.data, hdu.header
         raise Exception('No fits data found')
 
