@@ -27,7 +27,7 @@ DESCRIPTION = """Common libraries for the conversion and scaling of fits images"
 
 setup(
     name="fits2image",
-    version="0.4.3",
+    version="0.4.4",
     description=DESCRIPTION,
     long_description=DESCRIPTION,
     author='Jon Nation',
