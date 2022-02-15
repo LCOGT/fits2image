@@ -1,6 +1,6 @@
 name: Publish to PyPI and test PyPI
 
-on: release
+on: create
 
 jobs:
  publish_to_pypi:
