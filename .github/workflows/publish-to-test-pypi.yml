@@ -12,17 +12,17 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
-	python-version: '3.10'
+        python-version: '3.10'
     - name: Install dependencies
       run: |
-	python -m pip install --upgrade pip
+        python -m pip install --upgrade pip
         pip install setuptools wheel twine
     - name: Build package and publish to TestPyPI
       env:
 	TWINE_USERNAME: __token__
         TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
       run: |
-	python setup.py sdist bdist_wheel
+        python setup.py sdist bdist_wheel
         twine upload --repository testpypi dist/*
 
  publish_to_pypi:
