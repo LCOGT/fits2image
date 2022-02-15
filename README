@@ -19,3 +19,5 @@ v 0.3.2 - Fix bug in multi extension fits handling
 V 0.4.0 - Use astropy instead of cfitsio
 V 0.4.2 - Remove dependency on filesystem paths
 V 0.4.3 - Fix memory leak
+V 0.4.4 - Fix for images where the zeroth HDU has shape (0,0)
+V 0.4.5 - Add github actions to push to PyPI
