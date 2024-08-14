@@ -53,7 +53,7 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
         scaled_images = [stack_images(scaled_images)]
 
     for idx, im in enumerate(scaled_images):
-        im.thumbnail((width, height), Image.ANTIALIAS)
+        im.thumbnail((width, height), Image.LANCZOS)
         if label_text:
             try:
                 _add_label(im, label_text, label_font)
@@ -96,7 +96,7 @@ def fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200, zl
     x = int(col * step)
     y = int(row * step)
     im = im.crop((x, y, x+step, y+step))
-    im.thumbnail((width, height), Image.ANTIALIAS)
+    im.thumbnail((width, height), Image.LANCZOS)
     if label_text:
         try:
             _add_label(im, label_text, label_font)
