@@ -27,9 +27,10 @@ def _add_label(image, label_text, label_font):
     d.text((offset, int(height) - offset - font_height), label_text, font=font, fill=255)
 
 
-def fits_to_jpg(path_to_fits, path_to_jpg, width=200, height=200, progressive=False, label_text='', label_font='DejaVuSansMono.ttf',
+def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, progressive=False, label_text='', label_font='DejaVuSansMono.ttf',
                 zmin=None, zmax=None, gamma_adjust=2.5, contrast=0.1, quality=95, color=False, percentile=99.5, median=False):
-    '''Create a jpg from a fits file
+    '''
+        Create a img of file_type from a fits file
         :param path_to_fits a single file or list (if color=True)
     '''
     if type(path_to_fits) != list:
@@ -47,7 +48,7 @@ def fits_to_jpg(path_to_fits, path_to_jpg, width=200, height=200, progressive=Fa
 
     if color:
         if len(scaled_images) != 3:
-            logging.error('Need exacty 3 FITS files (RVB) to create a color JPG')
+            logging.error(f'Need exactly 3 FITS files (RVB) to create a color {file_type}')
             return False
         scaled_images = [stack_images(scaled_images)]
 
@@ -61,17 +62,17 @@ def fits_to_jpg(path_to_fits, path_to_jpg, width=200, height=200, progressive=Fa
                 logging.warning('font {} could not be found on the system. Ignoring label text.'.format(label_font))
 
         try:
-            path_only = os.path.dirname(path_to_jpg)
-            filename = path_to_jpg
+            path_only = os.path.dirname(path_to_output)
+            filename = path_to_output
             if not os.path.exists(path_only):
                 os.makedirs(path_only)
             if im.mode != 'RGB':
                 im = im.convert('RGB')
             if idx > 0:
                 filename = '{0}-{1}'.format(filename, idx)
-            im.save(filename, 'jpeg', quality=quality, progressive=progressive)
+            im.save(filename, file_type, quality=quality, progressive=progressive)
         except IOError as ioerr:
-            logging.warning('Error saving jpeg: {}. Reason: {}'.format(path_to_jpg, str(ioerr)))
+            logging.warning(f'Error saving {file_type}: {path_to_output}. Reason: {str(ioerr)}')
             return False
     return True
 
@@ -112,3 +113,16 @@ def fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200, zl
         logging.warning('Error saving jpeg: {}. Reason: {}'.format(path_to_jpg, str(ioerr)))
         return False
     return True
+
+def fits_to_tif(path_to_fits, path_to_tif, width=200, height=200, contrast=0.1, gamma_adjust=2.5, quality=100, percentile=99.5, median=False, progressive=False):
+    '''
+        Create a tif from a fits file
+    '''
+    return fits_to_img(path_to_fits, path_to_tif, 'TIFF', width=width, height=height, contrast=contrast, gamma_adjust=gamma_adjust, quality=quality, percentile=percentile, median=median, progressive=progressive)
+
+def fits_to_jpg(path_to_fits, path_to_jpg, width=200, height=200, progressive=False, label_text='', label_font='DejaVuSansMono.ttf',
+                zmin=None, zmax=None, gamma_adjust=2.5, contrast=0.1, quality=95, color=False, percentile=99.5, median=False):
+    '''
+        Create a jpg from a fits file
+    '''
+    return fits_to_img(path_to_fits, path_to_jpg, 'jpeg', width=width, height=height, progressive=progressive, label_text=label_text, label_font=label_font, zmin=zmin, zmax=zmax, gamma_adjust=gamma_adjust, contrast=contrast, quality=quality, color=color, percentile=percentile, median=median)
