@@ -37,10 +37,11 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
         path_to_fits = [path_to_fits]
 
     scaled_images = []
-    for path in path_to_fits:
+    for (path, zmin_entry, zmax_entry)in zip(path_to_fits, zmin, zmax):
+    # for path in path_to_fits:
         try:
             scaled_images.append(
-                get_scaled_image(path, zmin=zmin, zmax=zmax, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True, percentile=percentile, median=median)
+                get_scaled_image(path, zmin=zmin_entry, zmax=zmax_entry, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True, percentile=percentile, median=median)
             )
         except FileNotFoundError:
             logging.error('File {} not found'.format(path))

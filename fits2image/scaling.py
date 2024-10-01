@@ -194,7 +194,7 @@ def get_reduced_dimensionality_data(path_to_frame):
         with fits.open(p) as hdul:
             for hdu in hdul:
                 '''
-                For most images the shape of first HDU data is () and the first HDU data is the 
+                For most images the shape of first HDU data is () and the first HDU data is the
                 dimensions of the CCD.
                 For sinistro, the first HDU data has shape (0,0) and subsequent HDUs are 1/4 of
                 the chip dimensions.
