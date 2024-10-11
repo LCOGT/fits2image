@@ -32,13 +32,40 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
     '''
         Create a img of file_type from a fits file
         :param path_to_fits a single file or list (if color=True)
+        :param path_to_output: the path to save the output image
+        :param file_type: the type of image to save (e.g. 'jpeg', 'TIFF')
+        :param width: the width of the output image
+        :param height: the height of the output image
+        :param progressive: should the image be saved as progressive?
+        :param label_text: text to add to the image
+        :param label_font: the font to use for the label
+        :param zmin: the minimum value to scale the image to - should be a list of the same length as path_to_fits if path_to_fits is a list
+        :param zmax: the maximum value to scale the image to - should be a list of the same length as path_to_fits if path_to_fits is a list
+        :param gamma_adjust: the gamma adjustment to apply to the image
+        :param contrast: the contrast to apply to the image
+        :param quality: the quality of the output image
+        :param color: should the output image be color?
+        :param percentile: the percentile to use for the median calculation
+        :param median: should the median be recalculated?
     '''
     if type(path_to_fits) != list:
         path_to_fits = [path_to_fits]
+    if type(zmin) != list:
+        zmin = [zmin]
+    if type(zmax) != list:
+        zmax = [zmax]
+
+    # check that zmin and zmax are set correctly to the length of the path_to_fits
+    if zmin and len(zmin) != len(path_to_fits):
+        logging.error('zmin must be the same length as path_to_fits')
+        return False
+    if zmax and len(zmax) != len(path_to_fits):
+        logging.error('zmax must be the same length as path_to_fits')
+        return False
 
     scaled_images = []
-    for (path, zmin_entry, zmax_entry)in zip(path_to_fits, zmin, zmax):
-    # for path in path_to_fits:
+
+    for path, zmin_entry, zmax_entry in zip(path_to_fits, zmin, zmax):
         try:
             scaled_images.append(
                 get_scaled_image(path, zmin=zmin_entry, zmax=zmax_entry, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True, percentile=percentile, median=median)
