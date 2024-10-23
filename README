@@ -22,3 +22,6 @@ V 0.4.3 - Fix memory leak
 V 0.4.4 - Fix for images where the zeroth HDU has shape (0,0)
 V 0.4.5 - Add github actions to push to PyPI
 V 0.4.6 - No functional change
+V 0.4.7 - No functional change
+V 0.4.8 - Add fits_to_tif and fits_to_jpg convenience functions
+V 0.4.9 - Allow fits_to_img to take a list of zmin and zmax parameters (one for each color channel) when creating an RGB stack.
