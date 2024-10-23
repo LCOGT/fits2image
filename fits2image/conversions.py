@@ -48,18 +48,30 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
         :param percentile: the percentile to use for the median calculation
         :param median: should the median be recalculated?
     '''
+
+    # If path_to_fits is not a list, make it a list so that we can loop through it
     if type(path_to_fits) != list:
         path_to_fits = [path_to_fits]
-    if type(zmin) != list:
-        zmin = [zmin]
-    if type(zmax) != list:
-        zmax = [zmax]
 
-    # check that zmin and zmax are set correctly to the length of the path_to_fits
-    if zmin and len(zmin) != len(path_to_fits):
+    # Make sure zmin and zmax match the length of path_to_fits if they haven't been specified,
+    # since we loop through them and pass them to the scale function
+    if zmin is None:
+        zmin = [None] * len(path_to_fits)
+    if zmax is None:
+        zmax = [None] * len(path_to_fits)
+
+    # If zmin and zmax are not lists, make them lists so that we can handle the case where we only have one image
+    else:
+        if type(zmin) != list:
+            zmin = [zmin]
+        if type(zmax) != list:
+            zmax = [zmax]
+
+    # Finally, check that zmin and zmax are set correctly to the length of the path_to_fits
+    if len(zmin) != len(path_to_fits):
         logging.error('zmin must be the same length as path_to_fits')
         return False
-    if zmax and len(zmax) != len(path_to_fits):
+    if len(zmax) != len(path_to_fits):
         logging.error('zmax must be the same length as path_to_fits')
         return False
 
