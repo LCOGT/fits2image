@@ -31,6 +31,16 @@ def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adj
 
 
 def stack_images(images_to_stack):
+    sizes = [img.size for img in images_to_stack]
+
+    widths = [size[0] for size in sizes]
+    heights = [size[1] for size in sizes]
+
+    min_width = min(widths)
+    min_height = min(heights)
+
+    images_to_stack = [img.resize((min_width, min_height), Image.LANCZOS) for img in images_to_stack]
+
     rgb_cube = np.dstack(images_to_stack).astype(np.uint8)
     return Image.fromarray(rgb_cube)
 
