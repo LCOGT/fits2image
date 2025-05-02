@@ -31,7 +31,35 @@ def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adj
 
 
 def stack_images(images_to_stack):
-    rgb_cube = np.dstack(images_to_stack).astype(np.uint8)
+    try:
+        rgb_cube = np.dstack(images_to_stack).astype(np.uint8)
+    except ValueError:
+        logging.warning("Image dimensions do not match. Cropping as a fallback.")
+
+        sizes = [img.size for img in images_to_stack]
+        widths = [size[0] for size in sizes]
+        heights = [size[1] for size in sizes]
+        min_width = min(widths)
+        min_height = min(heights)
+
+        cropped_images = []
+
+        for img in images_to_stack:
+            size = img.size
+            
+            target_width = min(size[0], min_width)
+            target_height = min(size[1], min_height)
+
+            left = (size[0] - target_width) // 2
+            top = (size[1] - target_height) // 2
+            right = left + target_width
+            bottom = top + target_height
+
+            cropped_img = img.crop((left, top, right, bottom))
+            cropped_images.append(cropped_img)
+
+        rgb_cube = np.dstack(cropped_images).astype(np.uint8)
+
     return Image.fromarray(rgb_cube)
 
 
