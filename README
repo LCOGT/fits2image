@@ -25,3 +25,4 @@ V 0.4.6 - No functional change
 V 0.4.7 - No functional change
 V 0.4.8 - Add fits_to_tif and fits_to_jpg convenience functions
 V 0.4.9 - Allow fits_to_img to take a list of zmin and zmax parameters (one for each color channel) when creating an RGB stack.
+V 0.4.10 - Crop fallback whens stacking images that can't be aligned and have different dimensions
