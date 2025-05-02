@@ -55,8 +55,8 @@ def stack_images(images_to_stack):
             right = left + target_width
             bottom = top + target_height
 
-            img = img.crop((left, top, right, bottom))
-            cropped_images.append(img)
+            cropped_img = img.crop((left, top, right, bottom))
+            cropped_images.append(cropped_img)
 
         rgb_cube = np.dstack(cropped_images).astype(np.uint8)
 
