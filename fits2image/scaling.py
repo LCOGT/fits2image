@@ -7,6 +7,47 @@ import numpy as np
 from PIL import Image
 
 
+def quick_scale_image(input_fits: dict):
+    '''
+    Quicker image scaling implementation by making some assumptions and less free parameters
+    This takes an input dictionary which contains the file path or file in memory and which scaling algorithm to use:
+    This attempts to work on the image data in place whereever possible, and does not cast it to a new array.
+    It also does not apply gamma, since that will be applied at the end after image composition.
+    {
+        'fits_path': path-to-fits (either this or path),
+        'fits_data': raw data as numpy.ndarray (either this or path),
+        'scale_algorithm': 'zscale',
+        'color': (r, g, b),
+        'zmin': zmin (only for zscale),
+        'zmax': zmax (only for zscale)
+    }
+    '''
+    if 'fits_path' in input_fits:
+        data, header = get_reduced_dimensionality_data(input_fits['fits_path'])
+        input_fits['bitpix'] = header.get('BITPIX', input_fits.get('bitpix', 16))
+        input_fits['saturate'] = header.get('SATURATE', input_fits.get('saturate', 0))
+    else:
+        data = input_fits['fits_data']
+
+    match input_fits.get('scale_algorithm', 'zscale'):
+        case 'zscale':
+            zmin = input_fits['zmin']
+            zmax = input_fits['zmax']
+            if zmax == zmin:
+                # This will produce bad images, but its better than crashing with divide by zero error
+                logging.warning("Calculated same zmax and zmin. Using zmax=zmax+1, zmin=zmin-1 instead. Image may look bad.")
+                zmax = zmax + 1
+                zmin = zmin - 1
+
+            scale = 255.0 / (float(zmax) - float(zmin))
+            data.clip(zmin, zmax, data)
+            data -= zmin
+            data *= scale
+            # Don't round yet or change data type, we will do those things in the final image
+            return data
+    return None
+
+
 def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adjust=2.5, flip_v=True, percentile=99.5, median=False):
     ''' Helper function to get a scaled PIL Image given a fits or compressed fits file path and scale parameters
     :param path_to_fits:
@@ -197,6 +238,10 @@ def gamma_adjust_table(dtype, max_val=255.0, min_val=0.0, gamma_adjust=2.5):
     gamma_lookup_table = [int(size * (math.pow(float(i)/float(size), 1.0/float(gamma_adjust)))) for i in gamma_lookup_table]
 
     return np.array(gamma_lookup_table, dtype=dtype)
+
+
+# gamma = 2.5, uint8 gamma lookup table - precomputed
+DEFAULT_GAMMA_LUT = gamma_adjust_table(dtype='uint8')
 
 
 def auto_scale(path_to_frame, nsamples=2000, max_val=255, contrast=0.1, gamma_adjust=2.5, max_fit_iterations=1):
