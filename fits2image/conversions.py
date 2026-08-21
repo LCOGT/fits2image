@@ -25,18 +25,19 @@ def _add_label(image, label_text, label_font):
     font_size = 20
     offset = 4
     font = ImageFont.truetype(label_font, font_size)
-    (font_width, font_height) = font.getsize(label_text)
-    while font_width > (int(width)-offset):
+    # Pillow 10 removed FreeTypeFont.getsize; getbbox()[2:] is its documented replacement
+    (font_width, font_height) = font.getbbox(label_text)[2:]
+    while font_width > (int(width)-offset) and font_size > 1:
         font_size -= 1
         font = ImageFont.truetype(label_font, font_size)
-        (font_width, font_height) = font.getsize(label_text)
+        (font_width, font_height) = font.getbbox(label_text)[2:]
 
     d = ImageDraw.Draw(image)
     d.text((offset, int(height) - offset - font_height), label_text, font=font, fill=255)
 
 
 def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, progressive=False, label_text='', label_font='DejaVuSansMono.ttf',
-                zmin=None, zmax=None, gamma_adjust=2.5, contrast=0.1, quality=95, color=False, percentile=99.5, median=False):
+                zmin=None, zmax=None, gamma_adjust=2.5, contrast=0.1, quality=95, color=False, percentile=99.5, median=False, orient='legacy'):
     '''
         Create a img of file_type from a fits file
         :param path_to_fits a single file or list (if color=True)
@@ -55,6 +56,8 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
         :param color: should the output image be color?
         :param percentile: the percentile to use for the median calculation
         :param median: should the median be recalculated?
+        :param orient: 'wcs' to orient each frame north-up from its CD matrix, 'legacy' for the
+            fixed vertical flip. 'wcs' falls back to 'legacy' for a frame with no usable WCS.
     '''
 
     # If path_to_fits is not a list, make it a list so that we can loop through it
@@ -88,7 +91,7 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
     for path, zmin_entry, zmax_entry in zip(path_to_fits, zmin, zmax):
         try:
             scaled_images.append(
-                get_scaled_image(path, zmin=zmin_entry, zmax=zmax_entry, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True, percentile=percentile, median=median)
+                get_scaled_image(path, zmin=zmin_entry, zmax=zmax_entry, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True, percentile=percentile, median=median, orient=orient)
             )
         except FileNotFoundError:
             logging.error('File {} not found'.format(path))
@@ -105,9 +108,9 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
         if label_text:
             try:
                 _add_label(im, label_text, label_font)
-            except IOError:
+            except (OSError, ValueError, AttributeError) as err:
                 # just log a warning and continue - its okay if you cant write a label
-                logging.warning('font {} could not be found on the system. Ignoring label text.'.format(label_font))
+                logging.warning('could not write label with font {}. Ignoring label text. Reason: {}'.format(label_font, err))
 
         try:
             path_only = os.path.dirname(path_to_output)
@@ -127,14 +130,14 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
 
 def fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200, zlevel=0, zfactor=1.25, progressive=False,
                            label_text='', label_font='DejaVuSansMono.ttf', zmin=None, zmax=None, gamma_adjust=2.5,
-                           contrast=0.1, quality=75):
+                           contrast=0.1, quality=75, orient='legacy'):
     '''Create a slice of a zoomed in jpg from a fits file
     '''
     if not os.path.exists(path_to_fits):
         logging.warning('fits file {} does not exist'.format(path_to_fits))
         return False
 
-    im = get_scaled_image(path_to_fits, zmin=zmin, zmax=zmax, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True)
+    im = get_scaled_image(path_to_fits, zmin=zmin, zmax=zmax, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True, orient=orient)
     height = side
     width = side
     # zoom scale is display px per image px
@@ -148,9 +151,9 @@ def fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200, zl
     if label_text:
         try:
             _add_label(im, label_text, label_font)
-        except IOError:
+        except (OSError, ValueError, AttributeError) as err:
             # just log a warning and continue - its okay if you cant write a label
-            logging.warning('font {} could not be found on the system. Ignoring label text.'.format(label_font))
+            logging.warning('could not write label with font {}. Ignoring label text. Reason: {}'.format(label_font, err))
 
     try:
         path_only = os.path.dirname(path_to_jpg)
@@ -162,18 +165,18 @@ def fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200, zl
         return False
     return True
 
-def fits_to_tif(path_to_fits, path_to_tif, width=200, height=200, contrast=0.1, gamma_adjust=2.5, quality=100, percentile=99.5, median=False, progressive=False):
+def fits_to_tif(path_to_fits, path_to_tif, width=200, height=200, contrast=0.1, gamma_adjust=2.5, quality=100, percentile=99.5, median=False, progressive=False, orient='legacy'):
     '''
         Create a tif from a fits file
     '''
-    return fits_to_img(path_to_fits, path_to_tif, 'TIFF', width=width, height=height, contrast=contrast, gamma_adjust=gamma_adjust, quality=quality, percentile=percentile, median=median, progressive=progressive)
+    return fits_to_img(path_to_fits, path_to_tif, 'TIFF', width=width, height=height, contrast=contrast, gamma_adjust=gamma_adjust, quality=quality, percentile=percentile, median=median, progressive=progressive, orient=orient)
 
 def fits_to_jpg(path_to_fits, path_to_jpg, width=200, height=200, progressive=False, label_text='', label_font='DejaVuSansMono.ttf',
-                zmin=None, zmax=None, gamma_adjust=2.5, contrast=0.1, quality=95, color=False, percentile=99.5, median=False):
+                zmin=None, zmax=None, gamma_adjust=2.5, contrast=0.1, quality=95, color=False, percentile=99.5, median=False, orient='legacy'):
     '''
         Create a jpg from a fits file
     '''
-    return fits_to_img(path_to_fits, path_to_jpg, 'jpeg', width=width, height=height, progressive=progressive, label_text=label_text, label_font=label_font, zmin=zmin, zmax=zmax, gamma_adjust=gamma_adjust, contrast=contrast, quality=quality, color=color, percentile=percentile, median=median)
+    return fits_to_img(path_to_fits, path_to_jpg, 'jpeg', width=width, height=height, progressive=progressive, label_text=label_text, label_font=label_font, zmin=zmin, zmax=zmax, gamma_adjust=gamma_adjust, contrast=contrast, quality=quality, color=color, percentile=percentile, median=median, orient=orient)
 
 def multi_fits_to_img(input_fits, path_to_output, blending_algorithm='sum', width=200, height=200, file_type='jpeg', progressive=False, quality=95):
     '''

@@ -6,6 +6,8 @@ from astropy.io import fits
 import numpy as np
 from PIL import Image
 
+from fits2image.orientation import orient_image
+
 
 def quick_scale_image(input_fits: dict):
     '''
@@ -48,27 +50,26 @@ def quick_scale_image(input_fits: dict):
     return None
 
 
-def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adjust=2.5, flip_v=True, percentile=99.5, median=False):
+def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adjust=2.5, flip_v=True, percentile=99.5, median=False, orient='legacy'):
     ''' Helper function to get a scaled PIL Image given a fits or compressed fits file path and scale parameters
     :param path_to_fits:
     :param zmin:
     :param zmax:
     :param contrast:
     :param gamma_adjust:
-    :param flip_v: Should the image be flipped vertically?
+    :param flip_v: Should the image be flipped vertically? Ignored when orient='wcs' succeeds.
+    :param orient: 'wcs' to put north up from the frame's CD matrix, 'legacy' for the fixed flip
     :return:
     '''
+    data, header = get_reduced_dimensionality_data(path_to_fits)
     if zmin or zmax:
-        data, header = get_reduced_dimensionality_data(path_to_fits)
         scaled_data = linear_scale(data, zmin, zmax, gamma_adjust=gamma_adjust)
     else:
-        scaled_data = auto_scale(path_to_fits, contrast=contrast, gamma_adjust=gamma_adjust)
+        scaled_data = auto_scale_data(data, header, contrast=contrast, gamma_adjust=gamma_adjust)
     if median:
         scaled_data = recalculate_median(scaled_data,percentile)
     im = Image.fromarray(scaled_data)
-    if flip_v:
-        im = im.transpose(Image.FLIP_TOP_BOTTOM)
-    return im
+    return orient_image(im, header, orient=orient, flip_v=flip_v)
 
 
 def stack_images(images_to_stack):
@@ -153,7 +154,13 @@ def least_squares_line_fit(sample_data, max_iterations=5, min_fit=0.5):
         residuals = result[1]
 
         # Need to check residual and remove outliers before refit if residual is large
-        mean_residual = residuals / nfitsamples
+        # lstsq returns the sum of squared residuals as a 1-element array, or an empty
+        # one when the fit is rank deficient. numpy 2 no longer converts either to a
+        # float implicitly, so do it here and compute the residual directly if absent.
+        if residuals.size:
+            mean_residual = float(residuals[0]) / nfitsamples
+        else:
+            mean_residual = float(np.mean((y - (slope * x + y_intercept)) ** 2))
         rms = math.sqrt(mean_residual)
         fitline = np.array(range(nfitsamples))
         fitline = fitline * slope
@@ -249,6 +256,13 @@ def auto_scale(path_to_frame, nsamples=2000, max_val=255, contrast=0.1, gamma_ad
     linear scale
     '''
     data, header = get_reduced_dimensionality_data(path_to_frame)
+    return auto_scale_data(data, header, nsamples=nsamples, max_val=max_val, contrast=contrast,
+                           gamma_adjust=gamma_adjust, max_fit_iterations=max_fit_iterations)
+
+
+def auto_scale_data(data, header, nsamples=2000, max_val=255, contrast=0.1, gamma_adjust=2.5, max_fit_iterations=1):
+    '''As auto_scale, for a caller that has already read the data and header
+    '''
     samples = extract_samples(data, header, nsamples)
     median = np.median(samples)
     zmin, zmax, rms = calc_zscale_min_max(samples, contrast=contrast, iterations=max_fit_iterations)
@@ -275,8 +289,26 @@ def get_reduced_dimensionality_data(path_to_frame):
                 We also need to check for non-zero shape elements.
                 '''
                 if len(np.shape(hdu)) == 2 and np.shape(hdu)[0] > 0:
-                    return hdu.data, hdu.header
+                    return hdu.data, _merge_primary_header(hdul, hdu)
         raise Exception('No fits data found')
+
+
+def _merge_primary_header(hdul, data_hdu):
+    '''Fill in keywords the data HDU lacks from the primary header.
+
+    Sinistro keeps the full 243-card header on the primary HDU and puts the pixels in
+    four 17-card quadrant extensions, so the WCS and SATURATE are not on the HDU the
+    data came from. The data HDU's own cards always win, which keeps BITPIX and
+    NAXIS1/2 describing the array actually returned. CRPIX refers to a different
+    origin per quadrant, but the rotation and parity in CD do not, which is all the
+    orientation code reads.
+    '''
+    primary = hdul[0]
+    if data_hdu is primary:
+        return data_hdu.header
+    merged = primary.header.copy()
+    merged.update(data_hdu.header)
+    return merged
 
 
 def percentile_scale(path_to_frame, lower_percentile=5.0, upper_percentile=99.0):
