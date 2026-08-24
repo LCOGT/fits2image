@@ -1,5 +1,6 @@
 import math
 import logging
+from contextlib import contextmanager
 from pathlib import Path
 
 from astropy.io import fits
@@ -69,7 +70,7 @@ def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adj
     if median:
         scaled_data = recalculate_median(scaled_data,percentile)
     im = Image.fromarray(scaled_data)
-    return orient_image(im, header, orient=orient, flip_v=flip_v)
+    return orient_image(im, header, orient=orient, flip_v=flip_v, frame=path_to_fits)
 
 
 def stack_images(images_to_stack):
@@ -269,28 +270,52 @@ def auto_scale_data(data, header, nsamples=2000, max_val=255, contrast=0.1, gamm
     return linear_scale(data, median, zmax, max_val, gamma_adjust)
 
 
+@contextmanager
+def _open_frame(path_to_frame):
+    '''Yield the HDUList of a fits or compressed fits file.'''
+    if type(path_to_frame) == str:
+        path_to_frame = Path(path_to_frame)
+    with path_to_frame.open('rb') as p:
+        with fits.open(p) as hdul:
+            yield hdul
+
+
+def _find_data_hdu(hdul):
+    '''The first HDU holding a 2D image.
+
+    For most images the shape of first HDU data is () and the first HDU data is the
+    dimensions of the CCD.
+    For sinistro, the first HDU data has shape (0,0) and subsequent HDUs are 1/4 of
+    the chip dimensions.
+    Therefore, just checking for a shape with 2 elements is not sufficient to identify data.
+    We also need to check for non-zero shape elements.
+    '''
+    for hdu in hdul:
+        if len(np.shape(hdu)) == 2 and np.shape(hdu)[0] > 0:
+            return hdu
+    raise Exception('No fits data found')
+
+
 def get_reduced_dimensionality_data(path_to_frame):
     '''
     Reduce the dimensionality of the data by 1. For sinistro images, this will give the first quadrant
     :param path_to_frame: path to fits file
     :return: header and modified data from astropy.io.fits
     '''
-    if type(path_to_frame) == str:
-        path_to_frame = Path(path_to_frame)
-    with path_to_frame.open('rb') as p:
-        with fits.open(p) as hdul:
-            for hdu in hdul:
-                '''
-                For most images the shape of first HDU data is () and the first HDU data is the
-                dimensions of the CCD.
-                For sinistro, the first HDU data has shape (0,0) and subsequent HDUs are 1/4 of
-                the chip dimensions.
-                Therefore, just checking for a shape with 2 elements is not sufficient to identify data.
-                We also need to check for non-zero shape elements.
-                '''
-                if len(np.shape(hdu)) == 2 and np.shape(hdu)[0] > 0:
-                    return hdu.data, _merge_primary_header(hdul, hdu)
-        raise Exception('No fits data found')
+    with _open_frame(path_to_frame) as hdul:
+        hdu = _find_data_hdu(hdul)
+        return hdu.data, _merge_primary_header(hdul, hdu)
+
+
+def get_frame_header(path_to_frame):
+    '''The header get_reduced_dimensionality_data would return, without reading the pixels.
+
+    Shapes come from the HDU headers, so selecting the data HDU never touches the array.
+    :param path_to_frame: path to fits file
+    :return: the merged header of the HDU holding the image data
+    '''
+    with _open_frame(path_to_frame) as hdul:
+        return _merge_primary_header(hdul, _find_data_hdu(hdul))
 
 
 def _merge_primary_header(hdul, data_hdu):
@@ -302,6 +327,9 @@ def _merge_primary_header(hdul, data_hdu):
     NAXIS1/2 describing the array actually returned. CRPIX refers to a different
     origin per quadrant, but the rotation and parity in CD do not, which is all the
     orientation code reads.
+
+    The result is for looking keywords up. It can carry both SIMPLE and XTENSION, so it
+    is not a header to write back out.
     '''
     primary = hdul[0]
     if data_hdu is primary:

@@ -2,6 +2,8 @@
 import numpy as np
 from astropy.io import fits
 
+from fits2image.orientation import CD_KEYWORDS
+
 # Roughly the plate scale of an LCO 0m4, in degrees per pixel. The absolute value
 # does not matter to any test here, only the signs and ratios inside the CD matrix.
 SCALE = 2.0653e-4
@@ -39,7 +41,7 @@ def sky_offset_pixels(cd, direction, distance=60.0):
     A frame with no CD matrix has no sky direction, so the blob just goes at a fixed
     offset - such frames only exist in these tests to exercise the fallback path.
     '''
-    if not all(key in cd for key in ('CD1_1', 'CD1_2', 'CD2_1', 'CD2_2')):
+    if not all(keyword in cd for keyword in CD_KEYWORDS):
         return np.array(direction) * distance
     matrix = np.array([[cd['CD1_1'], cd['CD1_2']], [cd['CD2_1'], cd['CD2_2']]])
     offset = np.linalg.inv(matrix) @ np.array(direction)

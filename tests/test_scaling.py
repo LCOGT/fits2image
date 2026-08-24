@@ -8,8 +8,9 @@ from unittest import mock
 import numpy as np
 
 from fits2image import scaling
-from fits2image.scaling import (auto_scale, auto_scale_data, get_reduced_dimensionality_data,
-                                get_scaled_image)
+from fits2image.scaling import (auto_scale, auto_scale_data, get_frame_header,
+                                get_reduced_dimensionality_data, get_scaled_image,
+                                least_squares_line_fit)
 from tests.helpers import lco_cd, write_fits, write_multi_hdu_fits
 
 
@@ -61,6 +62,14 @@ class TestHeaderMerging(ScalingTestCase):
 
         self.assertEqual(len(header), expected)
 
+    def test_the_header_only_read_agrees_with_the_full_one(self):
+        '''fits_to_img uses this to pick one orientation for a whole colour stack.'''
+        path = write_multi_hdu_fits(self.path('sinistro.fits'), lco_cd(180.0, True, False))
+
+        _, from_full_read = get_reduced_dimensionality_data(path)
+
+        self.assertEqual(get_frame_header(path).tostring(), from_full_read.tostring())
+
     def test_a_frame_with_no_image_data_raises(self):
         from astropy.io import fits
         path = self.path('empty.fits')
@@ -68,6 +77,26 @@ class TestHeaderMerging(ScalingTestCase):
 
         with self.assertRaises(Exception):
             get_reduced_dimensionality_data(path)
+
+
+class TestLineFit(unittest.TestCase):
+
+    def test_a_rank_deficient_fit_still_produces_an_rms(self):
+        '''lstsq returns an empty residual array when the fit is rank deficient, and
+        numpy 2 will not convert that to a float, so the residual is computed directly.'''
+        slope, y_intercept, iterations, nfitsamples, rms, samples = least_squares_line_fit(np.array([5.0]))
+
+        self.assertEqual(nfitsamples, 1)
+        self.assertEqual(y_intercept, 5.0)
+        self.assertEqual(rms, 0.0)
+
+    def test_a_full_rank_fit_uses_the_residual_lstsq_returns(self):
+        straight_line = np.arange(100, dtype=float)
+
+        slope, y_intercept, iterations, nfitsamples, rms, samples = least_squares_line_fit(straight_line)
+
+        self.assertAlmostEqual(slope, 1.0)
+        self.assertAlmostEqual(rms, 0.0)
 
 
 class TestAutoScaleSplit(ScalingTestCase):
@@ -85,8 +114,9 @@ class TestAutoScaleSplit(ScalingTestCase):
 class TestGetScaledImage(ScalingTestCase):
 
     def test_the_frame_is_only_read_once(self):
-        '''The thumbnail service holds a whole frame in memory per message, so a
-        second read of a 4k x 4k file is not free.'''
+        '''Orientation needs the header and scaling needs the data. Both come out of one
+        open, and the thumbnail service holds a whole frame in memory per message, so
+        this guards the split against growing a second read of a 4k x 4k file.'''
         path = write_fits(self.path('frame.fits'), lco_cd(), naxis=128)
 
         real = scaling.get_reduced_dimensionality_data
@@ -118,10 +148,12 @@ class TestGetScaledImage(ScalingTestCase):
         path = write_fits(self.path('nowcs.fits'), {}, naxis=128)
 
         legacy = np.asarray(get_scaled_image(path, orient='legacy'))
-        with self.assertLogs(level='WARNING'):
+        with self.assertLogs(level='WARNING') as logged:
             wcs = np.asarray(get_scaled_image(path, orient='wcs'))
 
         self.assertTrue(np.array_equal(legacy, wcs))
+        # a service converting thousands of frames needs to know which one fell back
+        self.assertIn(path, logged.output[0])
 
     def test_explicit_zmin_zmax_still_orients(self):
         path = write_fits(self.path('fa14.fits'), lco_cd(180.0, True, False), naxis=128)

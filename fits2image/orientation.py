@@ -17,22 +17,25 @@ from PIL import Image
 
 CD_KEYWORDS = ('CD1_1', 'CD1_2', 'CD2_1', 'CD2_2')
 
+ORIENTATIONS = ('wcs', 'legacy')
+
 # Below this the CD matrix is not invertible in any useful sense.
 MIN_DETERMINANT = 1e-20
 
 
 def get_cd_matrix(header):
     ''' Read the CD matrix out of a FITS header.
-    :param header: an astropy Header, or any mapping supporting .get()
+    :param header: an astropy Header, or any mapping supporting subscript access
     :return: a 2x2 numpy array, or None if the header carries no usable WCS
     '''
     if header is None:
         return None
     try:
-        cd = np.array([[float(header['CD1_1']), float(header['CD1_2'])],
-                       [float(header['CD2_1']), float(header['CD2_2'])]])
+        cd11, cd12, cd21, cd22 = (float(header[keyword]) for keyword in CD_KEYWORDS)
     except (KeyError, TypeError, ValueError):
         return None
+    cd = np.array([[cd11, cd12],
+                   [cd21, cd22]])
     if not np.all(np.isfinite(cd)):
         return None
     if abs(np.linalg.det(cd)) < MIN_DETERMINANT:
@@ -91,23 +94,25 @@ def apply_orientation(image, ops):
     return image
 
 
-def orient_image(image, header, orient='legacy', flip_v=True):
+def orient_image(image, header, orient='legacy', flip_v=True, frame=''):
     ''' Orient an image either from its WCS or by the legacy fixed vertical flip.
     :param image: Pillow Image, as produced by Image.fromarray
     :param header: FITS header of the frame
     :param orient: 'wcs' to put north up from the CD matrix, 'legacy' for the fixed flip
     :param flip_v: the legacy vertical flip, also used as the fallback when orient='wcs'
                    but the frame has no usable WCS
+    :param frame: names the frame in the fallback warning, which is otherwise unactionable
+                  for a service converting thousands of them
     :return: a new Pillow Image
     '''
-    if orient not in ('wcs', 'legacy'):
-        raise ValueError("orient must be 'wcs' or 'legacy', not {!r}".format(orient))
+    if orient not in ORIENTATIONS:
+        raise ValueError('orient must be one of {}, not {!r}'.format(ORIENTATIONS, orient))
 
     if orient == 'wcs':
         ops = orientation_ops(header)
         if ops is not None:
             return apply_orientation(image, ops)
-        logging.warning('No usable WCS in header, falling back to flip_v=%s', flip_v)
+        logging.warning('No usable WCS in %s, falling back to flip_v=%s', frame or 'header', flip_v)
 
     if flip_v:
         image = image.transpose(Image.FLIP_TOP_BOTTOM)

@@ -37,5 +37,5 @@ setup(
     python_requires='>=3.10',
     # Floors are the oldest combination the test suite is known to pass on. There are
     # deliberately no upper bounds - the range is proved by CI rather than guessed at here.
-    install_requires=['numpy>=1.22', 'astropy>=5.0', 'Pillow>=8.0']
+    install_requires=['numpy>=1.22', 'astropy>=5.0', 'Pillow>=8.4']
 )

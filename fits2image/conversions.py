@@ -1,4 +1,5 @@
-from fits2image.scaling import get_scaled_image, stack_images, quick_scale_image, DEFAULT_GAMMA_LUT
+from fits2image.scaling import get_scaled_image, stack_images, quick_scale_image, get_frame_header, DEFAULT_GAMMA_LUT
+from fits2image.orientation import ORIENTATIONS, orientation_ops
 
 import logging
 import os
@@ -36,6 +37,33 @@ def _add_label(image, label_text, label_font):
     d.text((offset, int(height) - offset - font_height), label_text, font=font, fill=255)
 
 
+def _stack_orientation(paths, orient):
+    '''The orientation to use for every channel of a colour stack.
+
+    The channels are combined pixel for pixel, so they have to share one transform.
+    Snapping each frame to its own nearest 90 degrees misregisters a stack whose frames
+    were taken at different sky angles, or one where a single frame has lost its WCS,
+    and stack_images then crops the mismatch away without the result being wrong-looking
+    enough to notice. Costs one extra open per frame, which does not read the pixels.
+    '''
+    if orient != 'wcs':
+        return orient
+
+    ops = []
+    for path in paths:
+        try:
+            ops.append(orientation_ops(get_frame_header(path)))
+        except Exception as err:
+            # The scaling loop opens the same file next and reports the real failure.
+            logging.debug('could not read the header of {}: {}'.format(path, err))
+            ops.append(None)
+
+    if len(set(ops)) == 1 and ops[0] is not None:
+        return 'wcs'
+    logging.warning('Colour frames do not share one WCS orientation. Using orient=legacy for all of them.')
+    return 'legacy'
+
+
 def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, progressive=False, label_text='', label_font='DejaVuSansMono.ttf',
                 zmin=None, zmax=None, gamma_adjust=2.5, contrast=0.1, quality=95, color=False, percentile=99.5, median=False, orient='legacy'):
     '''
@@ -58,7 +86,12 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
         :param median: should the median be recalculated?
         :param orient: 'wcs' to orient each frame north-up from its CD matrix, 'legacy' for the
             fixed vertical flip. 'wcs' falls back to 'legacy' for a frame with no usable WCS.
+            A colour stack takes 'wcs' only when all of its frames resolve to the same
+            transform, since the channels are combined pixel for pixel.
     '''
+    if orient not in ORIENTATIONS:
+        logging.error('orient must be one of {}, not {!r}'.format(ORIENTATIONS, orient))
+        return False
 
     # If path_to_fits is not a list, make it a list so that we can loop through it
     if type(path_to_fits) != list:
@@ -85,6 +118,9 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
     if len(zmax) != len(path_to_fits):
         logging.error('zmax must be the same length as path_to_fits')
         return False
+
+    if color:
+        orient = _stack_orientation(path_to_fits, orient)
 
     scaled_images = []
 
@@ -132,7 +168,16 @@ def fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200, zl
                            label_text='', label_font='DejaVuSansMono.ttf', zmin=None, zmax=None, gamma_adjust=2.5,
                            contrast=0.1, quality=75, orient='legacy'):
     '''Create a slice of a zoomed in jpg from a fits file
+
+    :param orient: 'wcs' to orient the frame north-up from its CD matrix before slicing,
+        'legacy' for the fixed vertical flip. row and col index the oriented image, so the
+        same (row, col, zlevel) is not the same patch of sky under the two settings, and a
+        quarter turn swaps the extent of the grid.
     '''
+    if orient not in ORIENTATIONS:
+        logging.error('orient must be one of {}, not {!r}'.format(ORIENTATIONS, orient))
+        return False
+
     if not os.path.exists(path_to_fits):
         logging.warning('fits file {} does not exist'.format(path_to_fits))
         return False

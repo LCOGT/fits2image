@@ -1,12 +1,18 @@
 name: Run tests
 
+# Push is limited to master because a branch push and its open pull request would
+# otherwise each run the whole matrix. Work on a branch is covered by its pull request.
 on:
   push:
-    branches: ['**']
+    branches: [master]
   pull_request:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
