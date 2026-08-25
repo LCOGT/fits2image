@@ -26,15 +26,18 @@ def _add_label(image, label_text, label_font):
     font_size = 20
     offset = 4
     font = ImageFont.truetype(label_font, font_size)
-    # Pillow 10 removed FreeTypeFont.getsize; getbbox()[2:] is its documented replacement
-    (font_width, font_height) = font.getbbox(label_text)[2:]
-    while font_width > (int(width)-offset) and font_size > 1:
+    # Pillow 10 removed FreeTypeFont.getsize, which returned (right - left, bottom) of
+    # getbbox. The two halves are not symmetrical: ImageDraw.text measures y from the
+    # ascender line, so the label is placed from bottom. Placing it from the ink height,
+    # bottom - top, drops a string with no ascenders below the edge of the frame.
+    (left, _, right, bottom) = font.getbbox(label_text)
+    while right - left > (int(width) - offset) and font_size > 1:
         font_size -= 1
         font = ImageFont.truetype(label_font, font_size)
-        (font_width, font_height) = font.getbbox(label_text)[2:]
+        (left, _, right, bottom) = font.getbbox(label_text)
 
     d = ImageDraw.Draw(image)
-    d.text((offset, int(height) - offset - font_height), label_text, font=font, fill=255)
+    d.text((offset, int(height) - offset - bottom), label_text, font=font, fill=255)
 
 
 def _stack_orientation(paths, orient):

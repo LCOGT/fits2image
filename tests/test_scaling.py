@@ -70,6 +70,30 @@ class TestHeaderMerging(ScalingTestCase):
 
         self.assertEqual(get_frame_header(path).tostring(), from_full_read.tostring())
 
+    def test_an_hdu_with_a_zero_length_axis_is_skipped(self):
+        '''A (64, 0) HDU has two dimensions and no pixels.'''
+        from astropy.io import fits
+        path = self.path('thin.fits')
+        fits.HDUList([fits.PrimaryHDU(data=np.zeros((64, 0), dtype=np.float32)),
+                      fits.ImageHDU(data=np.ones((32, 32), dtype=np.float32))]).writeto(path)
+
+        data, _ = get_reduced_dimensionality_data(path)
+
+        self.assertEqual(data.shape, (32, 32))
+
+    def test_a_table_extension_is_skipped(self):
+        '''BANZAI frames carry a CAT extension alongside the science array.'''
+        from astropy.io import fits
+        path = self.path('with_cat.fits')
+        catalogue = fits.BinTableHDU.from_columns(
+            [fits.Column(name='x', format='E', array=np.arange(10.0))], name='CAT')
+        fits.HDUList([fits.PrimaryHDU(), catalogue,
+                      fits.ImageHDU(data=np.ones((32, 32), dtype=np.float32), name='SCI')]).writeto(path)
+
+        data, _ = get_reduced_dimensionality_data(path)
+
+        self.assertEqual(data.shape, (32, 32))
+
     def test_a_frame_with_no_image_data_raises(self):
         from astropy.io import fits
         path = self.path('empty.fits')
@@ -125,6 +149,25 @@ class TestGetScaledImage(ScalingTestCase):
             get_scaled_image(path)
 
         self.assertEqual(reader.call_count, 1)
+
+    def test_a_zmin_and_zmax_of_zero_are_not_treated_as_unset(self):
+        '''An explicit pair of zeros is a linear scale, not a request to auto scale.'''
+        path = write_fits(self.path('frame.fits'), lco_cd(), naxis=128)
+
+        with mock.patch.object(scaling, 'auto_scale_data') as auto_scale:
+            get_scaled_image(path, zmin=0, zmax=0)
+
+        auto_scale.assert_not_called()
+
+    def test_a_half_specified_pair_auto_scales(self):
+        '''linear_scale does arithmetic on both limits, so one on its own is no use.'''
+        path = write_fits(self.path('frame.fits'), lco_cd(), naxis=128)
+
+        with mock.patch.object(scaling, 'auto_scale_data',
+                               side_effect=scaling.auto_scale_data) as auto_scale:
+            get_scaled_image(path, zmin=900)
+
+        auto_scale.assert_called_once()
 
     def test_wcs_and_legacy_differ_for_a_rotation_180_instrument(self):
         '''fa14, fa01, ef14 and the rest of the 180 degree group.'''

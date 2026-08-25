@@ -4,9 +4,10 @@ import shutil
 import tempfile
 import unittest
 
+import numpy as np
 from PIL import Image, ImageFont
 
-from fits2image.conversions import (fits_to_img, fits_to_jpg, fits_to_tif,
+from fits2image.conversions import (_add_label, fits_to_img, fits_to_jpg, fits_to_tif,
                                     fits_to_zoom_slice_jpg)
 from tests.helpers import brightest_pixel, lco_cd, write_fits
 
@@ -63,6 +64,19 @@ class TestLabelling(ConversionTestCase):
 
         self.assertTrue(fits_to_jpg(self.frame(), out, width=16, height=16,
                                     label_text='a' * 400))
+
+    def test_a_label_with_no_ascenders_stays_inside_the_frame(self):
+        '''ImageDraw.text measures y from the ascender line, so the label is placed from
+        the bottom of getbbox. Placing it from bottom - top drops a string like "..."
+        below the edge of the frame.'''
+        image = Image.new('L', (200, 200), 0)
+
+        _add_label(image, '...', LABEL_FONT)
+
+        rows = np.argwhere(np.asarray(image) > 0)
+        self.assertTrue(len(rows), 'the label was drawn outside the image')
+        self.assertLess(rows[:, 0].max(), 200)
+        self.assertGreater(rows[:, 0].max(), 190, 'the label is not against the bottom')
 
     def test_a_missing_font_does_not_fail_the_conversion(self):
         out = self.path('nofont.jpg')

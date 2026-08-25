@@ -63,7 +63,8 @@ def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adj
     :return:
     '''
     data, header = get_reduced_dimensionality_data(path_to_fits)
-    if zmin or zmax:
+    # linear_scale needs both limits, and 0 is a limit like any other
+    if zmin is not None and zmax is not None:
         scaled_data = linear_scale(data, zmin, zmax, gamma_adjust=gamma_adjust)
     else:
         scaled_data = auto_scale_data(data, header, contrast=contrast, gamma_adjust=gamma_adjust)
@@ -291,7 +292,10 @@ def _find_data_hdu(hdul):
     We also need to check for non-zero shape elements.
     '''
     for hdu in hdul:
-        if len(np.shape(hdu)) == 2 and np.shape(hdu)[0] > 0:
+        # shape comes from the HDU's NAXIS cards, so this never reads the array. A table
+        # extension has no shape at all, and an axis of length 0 holds no pixels.
+        shape = getattr(hdu, 'shape', ())
+        if len(shape) == 2 and all(shape):
             return hdu
     raise Exception('No fits data found')
 
