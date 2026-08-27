@@ -30,16 +30,7 @@ V 0.4.9 - Allow fits_to_img to take a list of zmin and zmax parameters (one for 
 V 0.4.10 - Crop fallback whens stacking images that can't be aligned and have different dimensions
 V 0.4.11 - Allow a gamma adjustment to be passed through to the color stacking path
 V 1.0.0 - Output images are oriented north up and east left from the frame's CD matrix, snapped
-          to the nearest 90 degrees. There is no parameter for it, so this changes the output
-          of every caller, which is what the major version marks. A frame carrying no usable
-          WCS falls back to a fixed vertical flip. A quarter turn swaps the width and height
-          of a non-square frame, so the output comes out in the other aspect.
-          multi_fits_to_img orients too, taking its transform from any input that carries a
-          usable WCS.
-          The header of a multi-extension frame inherits the keywords its data HDU lacks from
-          the primary HDU. Sinistro carries its WCS and SATURATE only on the primary, so
-          quick_scale_image and multi_fits_to_img see a SATURATE for those frames instead of
-          the default of 0.
-          multi_fits_to_img accepts an input given as fits_data, which it previously rejected.
-          Its sum and max blends start from a zeroed buffer, so a composite no longer picks up
-          whatever was left in memory.
+          to the nearest 90 degrees. This changes the output of all callers so bumping a major version.
+          A frame with no WCS falls back to a fixed vertical flip.
+          A quarter turn swaps the width and height of a non-square frame,
+          so the output comes out in the other aspect.
