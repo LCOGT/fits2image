@@ -174,7 +174,7 @@ class TestGetScaledImage(ScalingTestCase):
         path = write_fits(self.path('fa14.fits'), lco_cd(180.0, True, False), naxis=128)
 
         oriented = np.asarray(get_scaled_image(path))
-        flipped = np.asarray(get_scaled_image(path, ops=None))
+        flipped = np.asarray(get_scaled_image(path, transform=None))
 
         self.assertFalse(np.array_equal(oriented, flipped))
 
@@ -183,7 +183,7 @@ class TestGetScaledImage(ScalingTestCase):
         path = write_fits(self.path('fa11.fits'), lco_cd(0.0, True, False), naxis=128)
 
         oriented = np.asarray(get_scaled_image(path))
-        flipped = np.asarray(get_scaled_image(path, ops=None))
+        flipped = np.asarray(get_scaled_image(path, transform=None))
 
         self.assertTrue(np.array_equal(oriented, flipped))
 
@@ -192,7 +192,7 @@ class TestGetScaledImage(ScalingTestCase):
 
         with self.assertLogs(level='WARNING') as logged:
             oriented = np.asarray(get_scaled_image(path))
-        flipped = np.asarray(get_scaled_image(path, ops=None))
+        flipped = np.asarray(get_scaled_image(path, transform=None))
 
         self.assertTrue(np.array_equal(oriented, flipped))
         # a service converting thousands of frames needs to know which one fell back
@@ -202,7 +202,7 @@ class TestGetScaledImage(ScalingTestCase):
         path = write_fits(self.path('fa14.fits'), lco_cd(180.0, True, False), naxis=128)
 
         oriented = np.asarray(get_scaled_image(path, zmin=900, zmax=2000))
-        flipped = np.asarray(get_scaled_image(path, zmin=900, zmax=2000, ops=None))
+        flipped = np.asarray(get_scaled_image(path, zmin=900, zmax=2000, transform=None))
 
         self.assertFalse(np.array_equal(oriented, flipped))
 

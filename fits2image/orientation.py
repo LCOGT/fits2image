@@ -45,7 +45,7 @@ def get_cd_matrix(header):
     return cd
 
 
-def orientation_ops(header):
+def orientation_transform(header):
     ''' Work out the transform that puts north up and east left, to the nearest 90 degrees.
     :param header: FITS header of the frame
     :return: (mirror, k) - mirror the image left-right if mirror is True, THEN apply k
@@ -82,13 +82,13 @@ def orientation_ops(header):
     return mirror, k
 
 
-def apply_orientation(image, ops):
-    ''' Apply the transform returned by orientation_ops to a Pillow image.
+def apply_orientation(image, transform):
+    ''' Apply the transform returned by orientation_transform to a Pillow image.
     :param image: Pillow Image
-    :param ops: (mirror, k) as returned by orientation_ops
+    :param transform: (mirror, k) as returned by orientation_transform
     :return: a new Pillow Image. Note that an odd k swaps width and height.
     '''
-    mirror, k = ops
+    mirror, k = transform
     if mirror:
         image = image.transpose(Image.FLIP_LEFT_RIGHT)
     for _ in range(k):
@@ -96,22 +96,54 @@ def apply_orientation(image, ops):
     return image
 
 
-def orient_image(image, header, flip_v=True, frame='', ops=DERIVE_FROM_HEADER):
+def apply_orientation_array(array, transform):
+    ''' The counterpart of apply_orientation, for a caller that composes several frames
+    before making an Image out of them.
+    :param array: 2D numpy array laid out the way Image.fromarray takes it, row 0 at the top
+    :param transform: (mirror, k) as returned by orientation_transform
+    :return: a contiguous array. Note that an odd k swaps the axes.
+    '''
+    mirror, k = transform
+    if mirror:
+        array = np.fliplr(array)
+    # Contiguous because the composition downstream works on these in place, and because
+    # a transform that reorders nothing is then free.
+    return np.ascontiguousarray(np.rot90(array, k))
+
+
+def orient_array(array, transform, flip_v=True):
+    ''' Orient an array by an already resolved transform, falling back to a fixed flip.
+
+    Unlike orient_image this does not warn, because a caller resolving one transform for
+    several frames has already reported why it could not.
+    :param array: 2D numpy array laid out the way Image.fromarray takes it
+    :param transform: (mirror, k), or None to take the flip_v fallback
+    :param flip_v: the fallback flip, applied when transform is None
+    :return: a contiguous array
+    '''
+    if transform is not None:
+        return apply_orientation_array(array, transform)
+    if flip_v:
+        return np.ascontiguousarray(np.flipud(array))
+    return array
+
+
+def orient_image(image, header, flip_v=True, frame='', transform=DERIVE_FROM_HEADER):
     ''' Put north up and east left, falling back to a fixed vertical flip.
     :param image: Pillow Image, as produced by Image.fromarray
     :param header: FITS header of the frame
     :param flip_v: the fallback flip, applied when there is no usable WCS
     :param frame: names the frame in the fallback warning, which is otherwise unactionable
                   for a service converting thousands of them
-    :param ops: the transform to apply, for a caller that has already resolved one across a
+    :param transform: the transform to apply, for a caller that has already resolved one across a
                 group of frames. Defaults to deriving it from this frame's own header.
     :return: a new Pillow Image
     '''
-    if ops is DERIVE_FROM_HEADER:
-        ops = orientation_ops(header)
+    if transform is DERIVE_FROM_HEADER:
+        transform = orientation_transform(header)
 
-    if ops is not None:
-        return apply_orientation(image, ops)
+    if transform is not None:
+        return apply_orientation(image, transform)
 
     logging.warning('No usable WCS in %s, falling back to flip_v=%s', frame or 'header', flip_v)
     if flip_v:

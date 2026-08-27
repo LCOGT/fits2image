@@ -1,5 +1,5 @@
 from fits2image.scaling import get_scaled_image, stack_images, quick_scale_image, get_frame_header, DEFAULT_GAMMA_LUT
-from fits2image.orientation import DERIVE_FROM_HEADER, orientation_ops
+from fits2image.orientation import DERIVE_FROM_HEADER, orient_array, orientation_transform
 
 import logging
 import os
@@ -39,29 +39,14 @@ def _add_label(image, label_text, label_font):
     d.text((offset, int(height) - offset - bottom), label_text, font=font, fill=255)
 
 
-def _stack_orientation(paths):
-    '''The one transform to apply to every channel of a colour stack.
+def _shared_orientation(frame_transforms):
+    '''The one transform to apply to every channel of a colour composite.
 
-    The channels are combined pixel for pixel, so they have to share a transform rather
-    than each snapping to its own nearest 90 degrees. A stack is taken at one orientation,
-    whether that is several filters on one camera or several cameras on one telescope, so
-    any usable WCS in it describes all of it and a frame that has lost its own takes the
-    transform its siblings resolve. Costs one extra open per frame, which reads no pixels.
+    A frame that has lost its own WCS takes the transform its siblings resolve.
+    :param frame_transforms: each frame's own (mirror, k), or None where it has no usable WCS
     :return: (mirror, k), or None if no frame carries a usable WCS
     '''
-    resolved = []
-    for path in paths:
-        try:
-            ops = orientation_ops(get_frame_header(path))
-        except Exception as err:
-            # The scaling loop opens the same file next and reports the real failure.
-            logging.debug('could not read the header of {}: {}'.format(path, err))
-            continue
-        if ops is None:
-            logging.debug('no usable WCS in {}, taking the orientation of its siblings'.format(path))
-        else:
-            resolved.append(ops)
-
+    resolved = [t for t in frame_transforms if t is not None]
     if not resolved:
         logging.warning('No colour frame carries a usable WCS. Falling back for all of them.')
         return None
@@ -69,6 +54,25 @@ def _stack_orientation(paths):
         logging.warning('Colour frames disagree on a WCS orientation they are expected to '
                         'share. Using {}, from the first frame that carries one.'.format(resolved[0]))
     return resolved[0]
+
+
+def _stack_orientation(paths):
+    '''The shared transform for a colour stack, read from the frames' headers.
+
+    Costs one extra open per frame, which reads no pixels.
+    '''
+    frame_transforms = []
+    for path in paths:
+        try:
+            transform = orientation_transform(get_frame_header(path))
+        except Exception as err:
+            # The scaling loop opens the same file next and reports the real failure.
+            logging.debug('could not read the header of {}: {}'.format(path, err))
+            continue
+        if transform is None:
+            logging.debug('no usable WCS in {}, taking the orientation of its siblings'.format(path))
+        frame_transforms.append(transform)
+    return _shared_orientation(frame_transforms)
 
 
 def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, progressive=False, label_text='', label_font='DejaVuSansMono.ttf',
@@ -122,15 +126,14 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
         logging.error('zmax must be the same length as path_to_fits')
         return False
 
-    # A colour stack is combined pixel for pixel, so one transform covers every channel.
-    ops = _stack_orientation(path_to_fits) if color else DERIVE_FROM_HEADER
+    transform = _stack_orientation(path_to_fits) if color else DERIVE_FROM_HEADER
 
     scaled_images = []
 
     for path, zmin_entry, zmax_entry in zip(path_to_fits, zmin, zmax):
         try:
             scaled_images.append(
-                get_scaled_image(path, zmin=zmin_entry, zmax=zmax_entry, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True, percentile=percentile, median=median, ops=ops)
+                get_scaled_image(path, zmin=zmin_entry, zmax=zmax_entry, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True, percentile=percentile, median=median, transform=transform)
             )
         except FileNotFoundError:
             logging.error('File {} not found'.format(path))
@@ -234,10 +237,13 @@ def multi_fits_to_img(input_fits, path_to_output, blending_algorithm='sum', widt
     file_type: 'jpeg' or 'tiff'
     blending_algorithm: The algorithm used to combine the color channels from input images into the output rgb
         options - sum, max, min, screen, multiply, overlay.
+
+    Any input carrying a usable WCS supplies the orientation for all of them. They fall
+    back to a fixed vertical flip only when none of them does.
     '''
     # Check that all inputs are present or raise and exception
     for input_dict in input_fits:
-        if 'fits_path' not in input_dict and 'fits_data' not in 'input_dict':
+        if 'fits_path' not in input_dict and 'fits_data' not in input_dict:
             raise ValueError("Each input must have either 'fits_path' or 'fits_data' set")
         if 'color' not in input_dict or len(input_dict['color']) != 3 or any(color > 1 or color < 0 for color in input_dict['color']):
             raise ValueError("Each input must have a 'color' field with 3 elements [r,g,b], where each element is between 0 and 1")
@@ -255,6 +261,11 @@ def multi_fits_to_img(input_fits, path_to_output, blending_algorithm='sum', widt
         # First get the scaled version of the image given your scaling algorithm and params
         input_dict['scaled_image'] = quick_scale_image(input_dict)
         largest_dtype = max(largest_dtype, input_dict['scaled_image'].dtype)
+
+    # Before the crop below, since a quarter turn changes which axis is the long one.
+    transform = _shared_orientation([input_dict.get('transform') for input_dict in input_fits])
+    for input_dict in input_fits:
+        input_dict['scaled_image'] = orient_array(input_dict['scaled_image'], transform)
 
     # Then check if images are same size and if not crop them to be the min_width/min_height
     shapes = [input_dict['scaled_image'].shape for input_dict in input_fits]
@@ -298,8 +309,10 @@ def multi_fits_to_img(input_fits, path_to_output, blending_algorithm='sum', widt
             combined_image[:, :, 1] = input_dict['scaled_image'] * color[1]
             combined_image[:, :, 2] = input_dict['scaled_image'] * color[2]
         case _:
-            # All others can start with an empty array since they are additive
-            combined_image = np.ndarray((min_width, min_height, 3), dtype=largest_dtype)
+            # Sum and max blend onto this rather than assigning it, so it has to start
+            # zeroed rather than merely allocated. A channel that no input contributes
+            # to is never written at all, and keeps those zeros.
+            combined_image = np.zeros((min_width, min_height, 3), dtype=largest_dtype)
 
     # Then combine all the scaled images in r, g, b, channels of a final image stack
     match blending_algorithm:
@@ -376,7 +389,6 @@ def multi_fits_to_img(input_fits, path_to_output, blending_algorithm='sum', widt
     combined_image.round(out=combined_image)
     gamma_image = np.take(DEFAULT_GAMMA_LUT, combined_image.astype('uint8'))
     im = Image.fromarray(gamma_image)
-    im = im.transpose(Image.FLIP_TOP_BOTTOM)
     im.thumbnail((width, height), Image.LANCZOS)
     # And save off the thumbnail
     try:

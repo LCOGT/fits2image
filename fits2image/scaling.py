@@ -7,7 +7,7 @@ from astropy.io import fits
 import numpy as np
 from PIL import Image
 
-from fits2image.orientation import DERIVE_FROM_HEADER, orient_image
+from fits2image.orientation import DERIVE_FROM_HEADER, orient_image, orientation_transform
 
 
 def quick_scale_image(input_fits: dict):
@@ -24,11 +24,16 @@ def quick_scale_image(input_fits: dict):
         'zmin': zmin (only for zscale),
         'zmax': zmax (only for zscale)
     }
+    Reading a fits_path also stashes 'bitpix', 'saturate' and the frame's orientation
+    'transform' back into the input dict.
     '''
     if 'fits_path' in input_fits:
         data, header = get_reduced_dimensionality_data(input_fits['fits_path'])
         input_fits['bitpix'] = header.get('BITPIX', input_fits.get('bitpix', 16))
         input_fits['saturate'] = header.get('SATURATE', input_fits.get('saturate', 0))
+        # Stashed rather than applied, since the caller resolves one transform across
+        # the frames it is composing. An input given as fits_data has no header to read.
+        input_fits['transform'] = orientation_transform(header)
     else:
         data = input_fits['fits_data']
 
@@ -51,7 +56,7 @@ def quick_scale_image(input_fits: dict):
     return None
 
 
-def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adjust=2.5, flip_v=True, percentile=99.5, median=False, ops=DERIVE_FROM_HEADER):
+def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adjust=2.5, flip_v=True, percentile=99.5, median=False, transform=DERIVE_FROM_HEADER):
     ''' Helper function to get a scaled PIL Image given a fits or compressed fits file path and scale parameters
     :param path_to_fits:
     :param zmin:
@@ -59,7 +64,7 @@ def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adj
     :param contrast:
     :param gamma_adjust:
     :param flip_v: Should the image be flipped vertically? Only used when the frame has no usable WCS.
-    :param ops: the orientation transform to apply, for a caller that has already resolved one
+    :param transform: the orientation transform to apply, for a caller that has already resolved one
         across a group of frames. Defaults to deriving it from this frame's own header.
     :return:
     '''
@@ -72,7 +77,7 @@ def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adj
     if median:
         scaled_data = recalculate_median(scaled_data,percentile)
     im = Image.fromarray(scaled_data)
-    return orient_image(im, header, flip_v=flip_v, frame=path_to_fits, ops=ops)
+    return orient_image(im, header, flip_v=flip_v, frame=path_to_fits, transform=transform)
 
 
 def stack_images(images_to_stack):

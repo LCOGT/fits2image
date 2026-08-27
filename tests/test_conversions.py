@@ -8,8 +8,11 @@ import numpy as np
 from PIL import Image, ImageFont
 
 from fits2image.conversions import (_add_label, _stack_orientation, fits_to_img,
-                                    fits_to_jpg, fits_to_tif, fits_to_zoom_slice_jpg)
-from fits2image.orientation import orientation_ops
+                                    fits_to_jpg, fits_to_tif, fits_to_zoom_slice_jpg,
+                                    multi_fits_to_img)
+from fits2image.scaling import quick_scale_image
+from fits2image.orientation import orientation_transform
+from fits2image.scaling import get_reduced_dimensionality_data
 from tests.helpers import brightest_pixel, header_with_cd, lco_cd, write_fits
 
 LABEL_FONT = 'DejaVuSansMono.ttf'
@@ -167,25 +170,25 @@ class TestZoomSlice(ConversionTestCase):
 
 
 class TestStackOrientation(ConversionTestCase):
-    '''A stack is taken at one orientation, so any usable WCS in it describes all of it.'''
+    '''Which transform a set of frames resolves to between them.'''
 
     def stack(self, *cds):
         return [write_fits(self.path('{}.fits'.format(i)), cd, naxis=256)
                 for i, cd in enumerate(cds)]
 
-    def ops_for(self, cd):
-        return orientation_ops(header_with_cd(cd))
+    def transform_for(self, cd):
+        return orientation_transform(header_with_cd(cd))
 
     def test_frames_that_agree_resolve_to_their_shared_transform(self):
         cd = lco_cd(180.0, True, False)
 
-        self.assertEqual(_stack_orientation(self.stack(cd, cd, cd)), self.ops_for(cd))
+        self.assertEqual(_stack_orientation(self.stack(cd, cd, cd)), self.transform_for(cd))
 
     def test_a_frame_without_a_wcs_takes_the_orientation_of_its_siblings(self):
         cd = lco_cd(180.0, True, False)
 
-        self.assertEqual(_stack_orientation(self.stack(cd, cd, {})), self.ops_for(cd))
-        self.assertEqual(_stack_orientation(self.stack({}, cd, cd)), self.ops_for(cd))
+        self.assertEqual(_stack_orientation(self.stack(cd, cd, {})), self.transform_for(cd))
+        self.assertEqual(_stack_orientation(self.stack({}, cd, cd)), self.transform_for(cd))
 
     def test_a_frame_without_a_wcs_is_the_expected_case_and_does_not_warn(self):
         cd = lco_cd(180.0, True, False)
@@ -197,9 +200,9 @@ class TestStackOrientation(ConversionTestCase):
         upright, turned = lco_cd(0.0, True, False), lco_cd(90.0, True, False)
 
         with self.assertLogs(level='WARNING'):
-            ops = _stack_orientation(self.stack(upright, upright, turned))
+            transform = _stack_orientation(self.stack(upright, upright, turned))
 
-        self.assertEqual(ops, self.ops_for(upright))
+        self.assertEqual(transform, self.transform_for(upright))
 
     def test_no_frame_with_a_wcs_falls_back_for_all_of_them(self):
         with self.assertLogs(level='WARNING'):
@@ -210,7 +213,7 @@ class TestStackOrientation(ConversionTestCase):
         cd = lco_cd(180.0, True, False)
         frames = self.stack(cd, cd) + [self.path('nope.fits')]
 
-        self.assertEqual(_stack_orientation(frames), self.ops_for(cd))
+        self.assertEqual(_stack_orientation(frames), self.transform_for(cd))
 
 
 class TestColourStackOrientation(ConversionTestCase):
@@ -253,6 +256,85 @@ class TestColourStackOrientation(ConversionTestCase):
         frames = self.stack(cd, cd) + [self.path('nope.fits')]
 
         self.assertFalse(fits_to_img(frames, self.path('out.jpg'), 'jpeg', color=True))
+
+
+class TestMultiFitsOrientation(ConversionTestCase):
+    """The composite path resolves its orientation the same way the colour stack does."""
+
+    def channel(self, path, colour=(1, 1, 1)):
+        return dict(fits_path=path, scale_algorithm='zscale', color=colour,
+                    zmin=900, zmax=60000)
+
+    def composite(self, out, inputs):
+        self.assertTrue(multi_fits_to_img(inputs, out, width=64, height=64))
+        return brightest_pixel(Image.open(out))
+
+    def test_quick_scale_image_stashes_the_frames_transform(self):
+        cd = lco_cd(180.0, True, False)
+        channel = self.channel(write_fits(self.path('f.fits'), cd, naxis=256))
+
+        quick_scale_image(channel)
+
+        self.assertEqual(channel['transform'], orientation_transform(header_with_cd(cd)))
+
+    def test_north_ends_up_in_the_top_half(self):
+        cd = lco_cd(180.0, True, False)
+        inputs = [self.channel(write_fits(self.path('{}.fits'.format(i)), cd, naxis=256))
+                  for i in range(3)]
+
+        _, y = self.composite(self.path('out.jpg'), inputs)
+
+        self.assertLess(y, 32, 'north did not end up in the top half')
+
+    def test_instruments_at_different_rotations_agree(self):
+        positions = []
+        for rotation in (0.0, 90.0, 180.0, 270.0):
+            path = write_fits(self.path('rot{}.fits'.format(int(rotation))),
+                              lco_cd(rotation, True, False), naxis=256)
+            positions.append(self.composite(self.path('rot{}.jpg'.format(int(rotation))),
+                                            [self.channel(path)]))
+
+        for position in positions[1:]:
+            self.assert_near(positions[0], position)
+
+    def test_an_input_given_as_data_takes_the_orientation_of_its_siblings(self):
+        """Datalab mixes paths and raw arrays, and an array carries no header to read."""
+        cd = lco_cd(180.0, True, False)
+        path = write_fits(self.path('f.fits'), cd, naxis=256)
+        data, _ = get_reduced_dimensionality_data(path)
+        inputs = [self.channel(path),
+                  dict(fits_data=data, scale_algorithm='zscale', color=(1, 1, 1),
+                       zmin=900, zmax=60000)]
+
+        _, y = self.composite(self.path('mixed.jpg'), inputs)
+
+        self.assertLess(y, 32, 'north did not end up in the top half')
+
+    def test_a_channel_no_input_contributes_to_stays_zero(self):
+        """sum blends onto the output buffer, so it has to start zeroed, not just allocated."""
+        cd = lco_cd(0.0, True, False)
+        inputs = [self.channel(write_fits(self.path('r.fits'), cd, naxis=128), (1, 0, 0)),
+                  self.channel(write_fits(self.path('g.fits'), cd, naxis=128), (0, 1, 0))]
+        out = self.path('out.tiff')
+
+        # Leave a dirty block the size the blend is about to ask for. numpy serves a
+        # request this size from its own freed memory rather than from a fresh zeroed page.
+        dirty = np.full((128, 128, 3), 12345.0, dtype=np.float32)
+        del dirty
+
+        multi_fits_to_img(inputs, out, blending_algorithm='sum', file_type='tiff',
+                          width=128, height=128)
+
+        blue = np.asarray(Image.open(out))[:, :, 2]
+        self.assertEqual(blue.max(), 0, 'the blue channel picked up what was left in memory')
+
+    def test_no_input_with_a_wcs_falls_back_to_the_vertical_flip(self):
+        inputs = [self.channel(write_fits(self.path('{}.fits'.format(i)), {}, naxis=256))
+                  for i in range(3)]
+
+        with self.assertLogs(level='WARNING'):
+            self.assertTrue(multi_fits_to_img(inputs, self.path('out.jpg'),
+                                              width=64, height=64))
 
 
 class TestUnchangedBehaviour(ConversionTestCase):

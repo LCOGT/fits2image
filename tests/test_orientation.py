@@ -10,8 +10,9 @@ import unittest
 import numpy as np
 from PIL import Image
 
-from fits2image.orientation import (apply_orientation, get_cd_matrix, orient_image,
-                                    orientation_ops)
+from fits2image.orientation import (apply_orientation, apply_orientation_array,
+                                    get_cd_matrix, orient_array, orient_image,
+                                    orientation_transform)
 from tests.helpers import EAST, NORTH, brightest_pixel, header_with_cd, lco_cd, make_array
 
 # The four focal_plane.flip.x / flip.y combinations present in site-configuration,
@@ -28,10 +29,10 @@ ROTATIONS = [0.0, 90.0, 180.0, 270.0, 30.0, -119.531]
 
 class OrientationTestCase(unittest.TestCase):
 
-    def assert_north_up_east_left(self, cd, ops, naxis=201):
+    def assert_north_up_east_left(self, cd, transform, naxis=201):
         '''North must land above centre and east to the left of it.'''
         array = make_array(cd, naxis=naxis, blobs=((NORTH, 255), (EAST, 160)))
-        image = apply_orientation(Image.fromarray(array.astype(np.uint8)), ops)
+        image = apply_orientation(Image.fromarray(array.astype(np.uint8)), transform)
 
         centre_x, centre_y = image.size[0] / 2, image.size[1] / 2
         north = np.argwhere(np.asarray(image) == 255).mean(axis=0)
@@ -49,19 +50,19 @@ class TestOrientationOps(OrientationTestCase):
             for rotation in ROTATIONS:
                 with self.subTest(flipx=flipx, flipy=flipy, rotation=rotation):
                     cd = lco_cd(rotation, flipx, flipy)
-                    ops = orientation_ops(header_with_cd(cd))
-                    self.assert_north_up_east_left(cd, ops)
+                    transform = orientation_transform(header_with_cd(cd))
+                    self.assert_north_up_east_left(cd, transform)
 
     def test_rotator_frames_at_arbitrary_sky_angles(self):
         '''A 2m rotator gives a different sky PA on every exposure.'''
         for sky_pa in (-135.0, -60.0, 0.0, 45.0, 100.0, 175.0):
             with self.subTest(sky_pa=sky_pa):
                 cd = lco_cd(0.0, True, False, sky_pa_deg=sky_pa)
-                ops = orientation_ops(header_with_cd(cd))
-                self.assert_north_up_east_left(cd, ops)
+                transform = orientation_transform(header_with_cd(cd))
+                self.assert_north_up_east_left(cd, transform)
 
     def test_ops_are_purely_dihedral(self):
-        mirror, k = orientation_ops(header_with_cd(lco_cd(90.0, True, False)))
+        mirror, k = orientation_transform(header_with_cd(lco_cd(90.0, True, False)))
         self.assertIn(mirror, (True, False))
         self.assertIn(k, (0, 1, 2, 3))
 
@@ -75,7 +76,7 @@ class TestOrientationOps(OrientationTestCase):
         '''fa11/fa16/sq31 etc: the WCS transform is exactly today's vertical flip,
         which is why 61 of 172 instruments see no change in the central thumbnail.'''
         cd = lco_cd(0.0, True, False)
-        self.assertEqual(orientation_ops(header_with_cd(cd)), (True, 2))
+        self.assertEqual(orientation_transform(header_with_cd(cd)), (True, 2))
 
         array = np.arange(64, dtype=np.uint8).reshape(8, 8)
         image = Image.fromarray(array)
@@ -110,7 +111,7 @@ class TestCdMatrix(unittest.TestCase):
         self.assertIsNone(get_cd_matrix(not_a_float))
 
     def test_orientation_ops_returns_none_so_callers_can_fall_back(self):
-        self.assertIsNone(orientation_ops({}))
+        self.assertIsNone(orientation_transform({}))
 
 
 class TestOrientImage(unittest.TestCase):
@@ -141,11 +142,47 @@ class TestOrientImage(unittest.TestCase):
 
     def test_given_ops_win_over_the_frames_own_header(self):
         header = header_with_cd(lco_cd(180.0, True, False))
-        given = orient_image(self.image, header, ops=(False, 0))
+        given = orient_image(self.image, header, transform=(False, 0))
         self.assertTrue(np.array_equal(np.asarray(given), self.array))
 
     def test_given_ops_of_none_falls_back_without_reading_the_header(self):
         header = header_with_cd(lco_cd(180.0, True, False))
         with self.assertLogs(level='WARNING'):
-            oriented = orient_image(self.image, header, flip_v=True, ops=None)
+            oriented = orient_image(self.image, header, flip_v=True, transform=None)
         self.assertTrue(np.array_equal(np.asarray(oriented), np.flipud(self.array)))
+
+
+class TestOrientArray(unittest.TestCase):
+    '''multi_fits_to_img composes its channels before making an Image, so the array
+    transform has to produce exactly what the Pillow one would.'''
+
+    def setUp(self):
+        self.array = np.arange(12, dtype=np.uint8).reshape(3, 4)
+
+    def transforms(self):
+        return [(mirror, k) for mirror in (False, True) for k in range(4)]
+
+    def test_it_agrees_with_the_pillow_transform(self):
+        for transform in self.transforms():
+            with self.subTest(transform=transform):
+                expected = apply_orientation(Image.fromarray(self.array), transform)
+                self.assertTrue(np.array_equal(np.asarray(expected),
+                                               apply_orientation_array(self.array, transform)))
+
+    def test_the_result_is_contiguous(self):
+        '''The composition downstream works on these in place.'''
+        for transform in self.transforms():
+            with self.subTest(transform=transform):
+                self.assertTrue(apply_orientation_array(self.array, transform).flags['C_CONTIGUOUS'])
+
+    def test_the_identity_transform_does_not_copy(self):
+        self.assertTrue(np.shares_memory(apply_orientation_array(self.array, (False, 0)),
+                                         self.array))
+
+    def test_no_ops_falls_back_to_the_vertical_flip(self):
+        self.assertTrue(np.array_equal(orient_array(self.array, None),
+                                       np.flipud(self.array)))
+
+    def test_no_ops_honours_flip_v_false(self):
+        self.assertTrue(np.array_equal(orient_array(self.array, None, flip_v=False),
+                                       self.array))
