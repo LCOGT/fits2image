@@ -113,7 +113,7 @@ class TestOrientation(ConversionTestCase):
         self.assertLess(y, height / 2, 'north did not end up in the top half')
 
     def test_instruments_at_different_rotations_agree(self):
-        '''The whole point: one thumbnail orientation across the network.'''
+        '''The whole point: one image orientation across the network.'''
         positions = []
         for rotation in (0.0, 90.0, 180.0, 270.0):
             out = self.path('rot{}.jpg'.format(int(rotation)))

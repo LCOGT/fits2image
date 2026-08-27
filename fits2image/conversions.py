@@ -42,7 +42,6 @@ def _add_label(image, label_text, label_font):
 def _shared_orientation(frame_transforms):
     '''The one transform to apply to every channel of a colour composite.
 
-    A frame that has lost its own WCS takes the transform its siblings resolve.
     :param frame_transforms: each frame's own (mirror, k), or None where it has no usable WCS
     :return: (mirror, k), or None if no frame carries a usable WCS
     '''
@@ -57,10 +56,7 @@ def _shared_orientation(frame_transforms):
 
 
 def _stack_orientation(paths):
-    '''The shared transform for a colour stack, read from the frames' headers.
-
-    Costs one extra open per frame, which reads no pixels.
-    '''
+    '''The shared transform for a colour stack, read from the frames' headers.'''
     frame_transforms = []
     for path in paths:
         try:
@@ -98,7 +94,7 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
 
         Each frame is oriented north-up and east-left from its CD matrix, falling back to a
         fixed vertical flip when it carries no usable WCS. A quarter turn swaps the width and
-        height of a non-square frame, so its thumbnail comes out in the other aspect.
+        height of a non-square frame, so the output comes out in the other aspect.
     '''
     # If path_to_fits is not a list, make it a list so that we can loop through it
     if type(path_to_fits) != list:
@@ -309,9 +305,7 @@ def multi_fits_to_img(input_fits, path_to_output, blending_algorithm='sum', widt
             combined_image[:, :, 1] = input_dict['scaled_image'] * color[1]
             combined_image[:, :, 2] = input_dict['scaled_image'] * color[2]
         case _:
-            # Sum and max blend onto this rather than assigning it, so it has to start
-            # zeroed rather than merely allocated. A channel that no input contributes
-            # to is never written at all, and keeps those zeros.
+            # All others can start with an empty array since they are additive
             combined_image = np.zeros((min_width, min_height, 3), dtype=largest_dtype)
 
     # Then combine all the scaled images in r, g, b, channels of a final image stack
@@ -390,7 +384,7 @@ def multi_fits_to_img(input_fits, path_to_output, blending_algorithm='sum', widt
     gamma_image = np.take(DEFAULT_GAMMA_LUT, combined_image.astype('uint8'))
     im = Image.fromarray(gamma_image)
     im.thumbnail((width, height), Image.LANCZOS)
-    # And save off the thumbnail
+    # And save off the image
     try:
         path_only = os.path.dirname(path_to_output)
         filename = path_to_output

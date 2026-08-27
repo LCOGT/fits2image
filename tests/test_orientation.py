@@ -67,7 +67,7 @@ class TestOrientationOps(OrientationTestCase):
         self.assertIn(k, (0, 1, 2, 3))
 
     def test_quarter_turn_swaps_the_axes(self):
-        '''kb* instruments sit at rotation 90, so their thumbnails change aspect.'''
+        '''kb* instruments sit at rotation 90, so their images change aspect.'''
         image = Image.fromarray(np.zeros((40, 100), dtype=np.uint8))
         self.assertEqual(apply_orientation(image, (False, 1)).size, (40, 100))
         self.assertEqual(apply_orientation(image, (False, 2)).size, (100, 40))
