@@ -17,10 +17,12 @@ from PIL import Image
 
 CD_KEYWORDS = ('CD1_1', 'CD1_2', 'CD2_1', 'CD2_2')
 
-ORIENTATIONS = ('wcs', 'legacy')
-
 # Below this the CD matrix is not invertible in any useful sense.
 MIN_DETERMINANT = 1e-20
+
+# Tells orient_image to work the transform out from the frame's own header, which a
+# caller that has already resolved one across a group of frames does not want.
+DERIVE_FROM_HEADER = object()
 
 
 def get_cd_matrix(header):
@@ -94,26 +96,24 @@ def apply_orientation(image, ops):
     return image
 
 
-def orient_image(image, header, orient='legacy', flip_v=True, frame=''):
-    ''' Orient an image either from its WCS or by the legacy fixed vertical flip.
+def orient_image(image, header, flip_v=True, frame='', ops=DERIVE_FROM_HEADER):
+    ''' Put north up and east left, falling back to a fixed vertical flip.
     :param image: Pillow Image, as produced by Image.fromarray
     :param header: FITS header of the frame
-    :param orient: 'wcs' to put north up from the CD matrix, 'legacy' for the fixed flip
-    :param flip_v: the legacy vertical flip, also used as the fallback when orient='wcs'
-                   but the frame has no usable WCS
+    :param flip_v: the fallback flip, applied when there is no usable WCS
     :param frame: names the frame in the fallback warning, which is otherwise unactionable
                   for a service converting thousands of them
+    :param ops: the transform to apply, for a caller that has already resolved one across a
+                group of frames. Defaults to deriving it from this frame's own header.
     :return: a new Pillow Image
     '''
-    if orient not in ORIENTATIONS:
-        raise ValueError('orient must be one of {}, not {!r}'.format(ORIENTATIONS, orient))
-
-    if orient == 'wcs':
+    if ops is DERIVE_FROM_HEADER:
         ops = orientation_ops(header)
-        if ops is not None:
-            return apply_orientation(image, ops)
-        logging.warning('No usable WCS in %s, falling back to flip_v=%s', frame or 'header', flip_v)
 
+    if ops is not None:
+        return apply_orientation(image, ops)
+
+    logging.warning('No usable WCS in %s, falling back to flip_v=%s', frame or 'header', flip_v)
     if flip_v:
         image = image.transpose(Image.FLIP_TOP_BOTTOM)
     return image

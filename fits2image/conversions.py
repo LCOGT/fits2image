@@ -1,5 +1,5 @@
 from fits2image.scaling import get_scaled_image, stack_images, quick_scale_image, get_frame_header, DEFAULT_GAMMA_LUT
-from fits2image.orientation import ORIENTATIONS, orientation_ops
+from fits2image.orientation import DERIVE_FROM_HEADER, orientation_ops
 
 import logging
 import os
@@ -26,10 +26,9 @@ def _add_label(image, label_text, label_font):
     font_size = 20
     offset = 4
     font = ImageFont.truetype(label_font, font_size)
-    # Pillow 10 removed FreeTypeFont.getsize, which returned (right - left, bottom) of
-    # getbbox. The two halves are not symmetrical: ImageDraw.text measures y from the
-    # ascender line, so the label is placed from bottom. Placing it from the ink height,
-    # bottom - top, drops a string with no ascenders below the edge of the frame.
+    # ImageDraw.text measures y from the ascender line, so the label is placed from
+    # bottom rather than from the ink height, bottom - top, which drops a string with
+    # no ascenders below the edge of the frame.
     (left, _, right, bottom) = font.getbbox(label_text)
     while right - left > (int(width) - offset) and font_size > 1:
         font_size -= 1
@@ -40,35 +39,40 @@ def _add_label(image, label_text, label_font):
     d.text((offset, int(height) - offset - bottom), label_text, font=font, fill=255)
 
 
-def _stack_orientation(paths, orient):
-    '''The orientation to use for every channel of a colour stack.
+def _stack_orientation(paths):
+    '''The one transform to apply to every channel of a colour stack.
 
-    The channels are combined pixel for pixel, so they have to share one transform.
-    Snapping each frame to its own nearest 90 degrees misregisters a stack whose frames
-    were taken at different sky angles, or one where a single frame has lost its WCS,
-    and stack_images then crops the mismatch away without the result being wrong-looking
-    enough to notice. Costs one extra open per frame, which does not read the pixels.
+    The channels are combined pixel for pixel, so they have to share a transform rather
+    than each snapping to its own nearest 90 degrees. A stack is taken at one orientation,
+    whether that is several filters on one camera or several cameras on one telescope, so
+    any usable WCS in it describes all of it and a frame that has lost its own takes the
+    transform its siblings resolve. Costs one extra open per frame, which reads no pixels.
+    :return: (mirror, k), or None if no frame carries a usable WCS
     '''
-    if orient != 'wcs':
-        return orient
-
-    ops = []
+    resolved = []
     for path in paths:
         try:
-            ops.append(orientation_ops(get_frame_header(path)))
+            ops = orientation_ops(get_frame_header(path))
         except Exception as err:
             # The scaling loop opens the same file next and reports the real failure.
             logging.debug('could not read the header of {}: {}'.format(path, err))
-            ops.append(None)
+            continue
+        if ops is None:
+            logging.debug('no usable WCS in {}, taking the orientation of its siblings'.format(path))
+        else:
+            resolved.append(ops)
 
-    if len(set(ops)) == 1 and ops[0] is not None:
-        return 'wcs'
-    logging.warning('Colour frames do not share one WCS orientation. Using orient=legacy for all of them.')
-    return 'legacy'
+    if not resolved:
+        logging.warning('No colour frame carries a usable WCS. Falling back for all of them.')
+        return None
+    if len(set(resolved)) > 1:
+        logging.warning('Colour frames disagree on a WCS orientation they are expected to '
+                        'share. Using {}, from the first frame that carries one.'.format(resolved[0]))
+    return resolved[0]
 
 
 def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, progressive=False, label_text='', label_font='DejaVuSansMono.ttf',
-                zmin=None, zmax=None, gamma_adjust=2.5, contrast=0.1, quality=95, color=False, percentile=99.5, median=False, orient='legacy'):
+                zmin=None, zmax=None, gamma_adjust=2.5, contrast=0.1, quality=95, color=False, percentile=99.5, median=False):
     '''
         Create a img of file_type from a fits file
         :param path_to_fits a single file or list (if color=True)
@@ -87,15 +91,11 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
         :param color: should the output image be color?
         :param percentile: the percentile to use for the median calculation
         :param median: should the median be recalculated?
-        :param orient: 'wcs' to orient each frame north-up from its CD matrix, 'legacy' for the
-            fixed vertical flip. 'wcs' falls back to 'legacy' for a frame with no usable WCS.
-            A colour stack takes 'wcs' only when all of its frames resolve to the same
-            transform, since the channels are combined pixel for pixel.
-    '''
-    if orient not in ORIENTATIONS:
-        logging.error('orient must be one of {}, not {!r}'.format(ORIENTATIONS, orient))
-        return False
 
+        Each frame is oriented north-up and east-left from its CD matrix, falling back to a
+        fixed vertical flip when it carries no usable WCS. A quarter turn swaps the width and
+        height of a non-square frame, so its thumbnail comes out in the other aspect.
+    '''
     # If path_to_fits is not a list, make it a list so that we can loop through it
     if type(path_to_fits) != list:
         path_to_fits = [path_to_fits]
@@ -122,15 +122,15 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
         logging.error('zmax must be the same length as path_to_fits')
         return False
 
-    if color:
-        orient = _stack_orientation(path_to_fits, orient)
+    # A colour stack is combined pixel for pixel, so one transform covers every channel.
+    ops = _stack_orientation(path_to_fits) if color else DERIVE_FROM_HEADER
 
     scaled_images = []
 
     for path, zmin_entry, zmax_entry in zip(path_to_fits, zmin, zmax):
         try:
             scaled_images.append(
-                get_scaled_image(path, zmin=zmin_entry, zmax=zmax_entry, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True, percentile=percentile, median=median, orient=orient)
+                get_scaled_image(path, zmin=zmin_entry, zmax=zmax_entry, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True, percentile=percentile, median=median, ops=ops)
             )
         except FileNotFoundError:
             logging.error('File {} not found'.format(path))
@@ -169,23 +169,17 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
 
 def fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200, zlevel=0, zfactor=1.25, progressive=False,
                            label_text='', label_font='DejaVuSansMono.ttf', zmin=None, zmax=None, gamma_adjust=2.5,
-                           contrast=0.1, quality=75, orient='legacy'):
+                           contrast=0.1, quality=75):
     '''Create a slice of a zoomed in jpg from a fits file
 
-    :param orient: 'wcs' to orient the frame north-up from its CD matrix before slicing,
-        'legacy' for the fixed vertical flip. row and col index the oriented image, so the
-        same (row, col, zlevel) is not the same patch of sky under the two settings, and a
-        quarter turn swaps the extent of the grid.
+    The frame is oriented north-up before slicing, and row and col index the oriented
+    image, so a quarter turn swaps the extent of the grid.
     '''
-    if orient not in ORIENTATIONS:
-        logging.error('orient must be one of {}, not {!r}'.format(ORIENTATIONS, orient))
-        return False
-
     if not os.path.exists(path_to_fits):
         logging.warning('fits file {} does not exist'.format(path_to_fits))
         return False
 
-    im = get_scaled_image(path_to_fits, zmin=zmin, zmax=zmax, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True, orient=orient)
+    im = get_scaled_image(path_to_fits, zmin=zmin, zmax=zmax, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True)
     height = side
     width = side
     # zoom scale is display px per image px
@@ -213,18 +207,18 @@ def fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200, zl
         return False
     return True
 
-def fits_to_tif(path_to_fits, path_to_tif, width=200, height=200, contrast=0.1, gamma_adjust=2.5, quality=100, percentile=99.5, median=False, progressive=False, orient='legacy'):
+def fits_to_tif(path_to_fits, path_to_tif, width=200, height=200, contrast=0.1, gamma_adjust=2.5, quality=100, percentile=99.5, median=False, progressive=False):
     '''
         Create a tif from a fits file
     '''
-    return fits_to_img(path_to_fits, path_to_tif, 'TIFF', width=width, height=height, contrast=contrast, gamma_adjust=gamma_adjust, quality=quality, percentile=percentile, median=median, progressive=progressive, orient=orient)
+    return fits_to_img(path_to_fits, path_to_tif, 'TIFF', width=width, height=height, contrast=contrast, gamma_adjust=gamma_adjust, quality=quality, percentile=percentile, median=median, progressive=progressive)
 
 def fits_to_jpg(path_to_fits, path_to_jpg, width=200, height=200, progressive=False, label_text='', label_font='DejaVuSansMono.ttf',
-                zmin=None, zmax=None, gamma_adjust=2.5, contrast=0.1, quality=95, color=False, percentile=99.5, median=False, orient='legacy'):
+                zmin=None, zmax=None, gamma_adjust=2.5, contrast=0.1, quality=95, color=False, percentile=99.5, median=False):
     '''
         Create a jpg from a fits file
     '''
-    return fits_to_img(path_to_fits, path_to_jpg, 'jpeg', width=width, height=height, progressive=progressive, label_text=label_text, label_font=label_font, zmin=zmin, zmax=zmax, gamma_adjust=gamma_adjust, contrast=contrast, quality=quality, color=color, percentile=percentile, median=median, orient=orient)
+    return fits_to_img(path_to_fits, path_to_jpg, 'jpeg', width=width, height=height, progressive=progressive, label_text=label_text, label_font=label_font, zmin=zmin, zmax=zmax, gamma_adjust=gamma_adjust, contrast=contrast, quality=quality, color=color, percentile=percentile, median=median)
 
 def multi_fits_to_img(input_fits, path_to_output, blending_algorithm='sum', width=200, height=200, file_type='jpeg', progressive=False, quality=95):
     '''

@@ -7,9 +7,10 @@ import unittest
 import numpy as np
 from PIL import Image, ImageFont
 
-from fits2image.conversions import (_add_label, fits_to_img, fits_to_jpg, fits_to_tif,
-                                    fits_to_zoom_slice_jpg)
-from tests.helpers import brightest_pixel, lco_cd, write_fits
+from fits2image.conversions import (_add_label, _stack_orientation, fits_to_img,
+                                    fits_to_jpg, fits_to_tif, fits_to_zoom_slice_jpg)
+from fits2image.orientation import orientation_ops
+from tests.helpers import brightest_pixel, header_with_cd, lco_cd, write_fits
 
 LABEL_FONT = 'DejaVuSansMono.ttf'
 
@@ -33,6 +34,11 @@ class ConversionTestCase(unittest.TestCase):
 
     def frame(self, name='frame.fits', rotation=0.0, naxis=256):
         return write_fits(self.path(name), lco_cd(rotation, True, False), naxis=naxis)
+
+    def assert_near(self, first, second, tolerance=2):
+        '''Blob placement rounds to whole pixels, so the same sky lands within a pixel or two.'''
+        self.assertLessEqual(max(abs(a - b) for a, b in zip(first, second)), tolerance,
+                             '{} and {} are more than {} pixels apart'.format(first, second, tolerance))
 
 
 @unittest.skipUnless(font_is_available(), '{} not installed'.format(LABEL_FONT))
@@ -94,40 +100,43 @@ class TestOrientation(ConversionTestCase):
         _, y = brightest_pixel(image)
         return y, image.size[1]
 
-    def test_wcs_puts_north_in_the_top_half_of_a_rotation_180_frame(self):
+    def test_north_ends_up_in_the_top_half_of_a_rotation_180_frame(self):
         '''fa14 and the rest of the 180 degree Sinistro group.'''
-        out = self.path('wcs.jpg')
+        out = self.path('rotated.jpg')
 
-        fits_to_jpg(self.frame(rotation=180.0), out, width=128, height=128, orient='wcs')
+        fits_to_jpg(self.frame(rotation=180.0), out, width=128, height=128)
 
         y, height = self.north_position(out)
         self.assertLess(y, height / 2, 'north did not end up in the top half')
 
-    def test_legacy_leaves_north_at_the_bottom_of_the_same_frame(self):
-        out = self.path('legacy.jpg')
+    def test_instruments_at_different_rotations_agree(self):
+        '''The whole point: one thumbnail orientation across the network.'''
+        positions = []
+        for rotation in (0.0, 90.0, 180.0, 270.0):
+            out = self.path('rot{}.jpg'.format(int(rotation)))
+            fits_to_jpg(self.frame('rot{}.fits'.format(int(rotation)), rotation=rotation),
+                        out, width=128, height=128)
+            positions.append(brightest_pixel(Image.open(out)))
 
-        fits_to_jpg(self.frame(rotation=180.0), out, width=128, height=128, orient='legacy')
+        for position in positions[1:]:
+            self.assert_near(positions[0], position)
+
+    def test_a_frame_without_a_wcs_warns_and_still_converts(self):
+        path = write_fits(self.path('nowcs.fits'), {}, naxis=128)
+        out = self.path('nowcs.jpg')
+
+        with self.assertLogs(level='WARNING'):
+            self.assertTrue(fits_to_jpg(path, out, width=128, height=128))
+
+        self.assertGreater(os.path.getsize(out), 0)
+
+    def test_the_tiff_path_orients_too(self):
+        out = self.path('rotated.tif')
+
+        fits_to_tif(self.frame(rotation=180.0), out, width=128, height=128)
 
         y, height = self.north_position(out)
-        self.assertGreater(y, height / 2, 'legacy orientation unexpectedly changed')
-
-    def test_legacy_is_the_default(self):
-        frame = self.frame(rotation=180.0)
-        default, legacy = self.path('default.jpg'), self.path('legacy.jpg')
-
-        fits_to_jpg(frame, default, width=128, height=128)
-        fits_to_jpg(frame, legacy, width=128, height=128, orient='legacy')
-
-        self.assertEqual(Image.open(default).tobytes(), Image.open(legacy).tobytes())
-
-    def test_orient_reaches_the_tiff_path_too(self):
-        frame = self.frame(rotation=180.0)
-        legacy, wcs = self.path('legacy.tif'), self.path('wcs.tif')
-
-        fits_to_tif(frame, legacy, width=128, height=128, orient='legacy')
-        fits_to_tif(frame, wcs, width=128, height=128, orient='wcs')
-
-        self.assertNotEqual(Image.open(legacy).tobytes(), Image.open(wcs).tobytes())
+        self.assertLess(y, height / 2, 'north did not end up in the top half')
 
 
 class TestZoomSlice(ConversionTestCase):
@@ -145,88 +154,105 @@ class TestZoomSlice(ConversionTestCase):
     def test_a_missing_file_returns_false(self):
         self.assertFalse(fits_to_zoom_slice_jpg(self.path('nope.fits'), self.path('out.jpg')))
 
-    def test_wcs_and_legacy_cut_different_tiles(self):
-        '''row and col index the oriented image, so the same tile is not the same sky.'''
-        frame = self.frame(rotation=180.0)
-        legacy, wcs = self.path('legacy.jpg'), self.path('wcs.jpg')
+    def test_the_slice_comes_from_the_oriented_image(self):
+        '''row and col index the oriented image, so the same tile is the same sky.'''
+        args = dict(row=0, col=0, side=256, zlevel=0)
+        upright, rotated = self.path('upright.jpg'), self.path('rotated.jpg')
 
-        fits_to_zoom_slice_jpg(frame, legacy, orient='legacy', **self.slice_args())
-        fits_to_zoom_slice_jpg(frame, wcs, orient='wcs', **self.slice_args())
+        fits_to_zoom_slice_jpg(self.frame('upright.fits', rotation=0.0), upright, **args)
+        fits_to_zoom_slice_jpg(self.frame('rotated.fits', rotation=180.0), rotated, **args)
 
-        self.assertNotEqual(Image.open(legacy).tobytes(), Image.open(wcs).tobytes())
-
-    def test_legacy_is_the_default(self):
-        frame = self.frame(rotation=180.0)
-        default, legacy = self.path('default.jpg'), self.path('legacy.jpg')
-
-        fits_to_zoom_slice_jpg(frame, default, **self.slice_args())
-        fits_to_zoom_slice_jpg(frame, legacy, orient='legacy', **self.slice_args())
-
-        self.assertEqual(Image.open(default).tobytes(), Image.open(legacy).tobytes())
+        self.assert_near(brightest_pixel(Image.open(upright)),
+                         brightest_pixel(Image.open(rotated)))
 
 
-class TestOrientValidation(ConversionTestCase):
-    '''An unknown orient is reported the same way as any other bad argument.'''
-
-    def test_fits_to_jpg_returns_false(self):
-        self.assertFalse(fits_to_jpg(self.frame(), self.path('out.jpg'), orient='north-up'))
-
-    def test_fits_to_zoom_slice_jpg_returns_false(self):
-        self.assertFalse(fits_to_zoom_slice_jpg(self.frame(), self.path('out.jpg'),
-                                                orient='north-up'))
-
-    def test_nothing_is_written(self):
-        out = self.path('out.jpg')
-
-        fits_to_jpg(self.frame(), out, orient='north-up')
-
-        self.assertFalse(os.path.exists(out))
-
-
-class TestColourStackOrientation(ConversionTestCase):
-    '''The channels are combined pixel for pixel, so they must share one transform.'''
+class TestStackOrientation(ConversionTestCase):
+    '''A stack is taken at one orientation, so any usable WCS in it describes all of it.'''
 
     def stack(self, *cds):
-        return [write_fits(self.path('{}.fits'.format(i)), cd, naxis=128)
+        return [write_fits(self.path('{}.fits'.format(i)), cd, naxis=256)
                 for i, cd in enumerate(cds)]
 
-    def assert_falls_back_to_legacy(self, frames):
-        wcs, legacy = self.path('wcs.jpg'), self.path('legacy.jpg')
+    def ops_for(self, cd):
+        return orientation_ops(header_with_cd(cd))
+
+    def test_frames_that_agree_resolve_to_their_shared_transform(self):
+        cd = lco_cd(180.0, True, False)
+
+        self.assertEqual(_stack_orientation(self.stack(cd, cd, cd)), self.ops_for(cd))
+
+    def test_a_frame_without_a_wcs_takes_the_orientation_of_its_siblings(self):
+        cd = lco_cd(180.0, True, False)
+
+        self.assertEqual(_stack_orientation(self.stack(cd, cd, {})), self.ops_for(cd))
+        self.assertEqual(_stack_orientation(self.stack({}, cd, cd)), self.ops_for(cd))
+
+    def test_a_frame_without_a_wcs_is_the_expected_case_and_does_not_warn(self):
+        cd = lco_cd(180.0, True, False)
+
+        with self.assertNoLogs(level='WARNING'):
+            _stack_orientation(self.stack(cd, cd, {}))
+
+    def test_frames_that_disagree_take_the_first_transform_and_warn(self):
+        upright, turned = lco_cd(0.0, True, False), lco_cd(90.0, True, False)
 
         with self.assertLogs(level='WARNING'):
-            self.assertTrue(fits_to_img(frames, wcs, 'jpeg', width=64, height=64,
-                                        color=True, orient='wcs'))
-        fits_to_img(frames, legacy, 'jpeg', width=64, height=64, color=True, orient='legacy')
+            ops = _stack_orientation(self.stack(upright, upright, turned))
 
-        self.assertEqual(Image.open(wcs).tobytes(), Image.open(legacy).tobytes())
+        self.assertEqual(ops, self.ops_for(upright))
 
-    def test_frames_that_agree_are_oriented_from_their_wcs(self):
-        cd = lco_cd(180.0, True, False)
-        frames = self.stack(cd, cd, cd)
-        legacy, wcs = self.path('legacy.jpg'), self.path('wcs.jpg')
+    def test_no_frame_with_a_wcs_falls_back_for_all_of_them(self):
+        with self.assertLogs(level='WARNING'):
+            self.assertIsNone(_stack_orientation(self.stack({}, {}, {})))
 
-        fits_to_img(frames, legacy, 'jpeg', width=64, height=64, color=True, orient='legacy')
-        fits_to_img(frames, wcs, 'jpeg', width=64, height=64, color=True, orient='wcs')
-
-        self.assertNotEqual(Image.open(legacy).tobytes(), Image.open(wcs).tobytes())
-
-    def test_one_frame_missing_its_wcs_falls_back_for_all_of_them(self):
-        cd = lco_cd(180.0, True, False)
-        self.assert_falls_back_to_legacy(self.stack(cd, cd, {}))
-
-    def test_a_missing_frame_still_returns_false(self):
-        '''The header pre-read swallows its own error so the scaling loop reports it.'''
+    def test_an_unreadable_frame_contributes_nothing(self):
+        '''The scaling loop opens the same file next and reports the real failure.'''
         cd = lco_cd(180.0, True, False)
         frames = self.stack(cd, cd) + [self.path('nope.fits')]
 
-        self.assertFalse(fits_to_img(frames, self.path('out.jpg'), 'jpeg',
-                                     color=True, orient='wcs'))
+        self.assertEqual(_stack_orientation(frames), self.ops_for(cd))
 
-    def test_frames_at_different_sky_angles_fall_back(self):
-        '''Snapping each to its own nearest 90 degrees would misregister the channels.'''
-        self.assert_falls_back_to_legacy(self.stack(lco_cd(0.0, True, False),
-                                                    lco_cd(0.0, True, False),
-                                                    lco_cd(90.0, True, False)))
+
+class TestColourStackOrientation(ConversionTestCase):
+
+    def stack(self, *cds):
+        return [write_fits(self.path('{}.fits'.format(i)), cd, naxis=256)
+                for i, cd in enumerate(cds)]
+
+    def test_the_stack_is_oriented_from_its_wcs(self):
+        cd = lco_cd(180.0, True, False)
+        out = self.path('wcs.jpg')
+
+        self.assertTrue(fits_to_img(self.stack(cd, cd, cd), out, 'jpeg',
+                                    width=64, height=64, color=True))
+
+        _, y = brightest_pixel(Image.open(out))
+        self.assertLess(y, 32, 'north did not end up in the top half')
+
+    def test_a_frame_without_a_wcs_is_oriented_with_the_rest(self):
+        cd = lco_cd(180.0, True, False)
+        out = self.path('mixed.jpg')
+
+        self.assertTrue(fits_to_img(self.stack(cd, cd, {}), out, 'jpeg',
+                                    width=64, height=64, color=True))
+
+        _, y = brightest_pixel(Image.open(out))
+        self.assertLess(y, 32, 'north did not end up in the top half')
+
+    def test_a_stack_with_no_wcs_anywhere_still_converts(self):
+        out = self.path('nowcs.jpg')
+
+        with self.assertLogs(level='WARNING'):
+            self.assertTrue(fits_to_img(self.stack({}, {}, {}), out, 'jpeg',
+                                        width=64, height=64, color=True))
+
+        self.assertEqual(Image.open(out).mode, 'RGB')
+
+    def test_a_missing_frame_still_returns_false(self):
+        cd = lco_cd(180.0, True, False)
+        frames = self.stack(cd, cd) + [self.path('nope.fits')]
+
+        self.assertFalse(fits_to_img(frames, self.path('out.jpg'), 'jpeg', color=True))
 
 
 class TestUnchangedBehaviour(ConversionTestCase):

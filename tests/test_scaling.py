@@ -169,42 +169,42 @@ class TestGetScaledImage(ScalingTestCase):
 
         auto_scale.assert_called_once()
 
-    def test_wcs_and_legacy_differ_for_a_rotation_180_instrument(self):
+    def test_a_rotation_180_instrument_moves_off_the_plain_flip(self):
         '''fa14, fa01, ef14 and the rest of the 180 degree group.'''
         path = write_fits(self.path('fa14.fits'), lco_cd(180.0, True, False), naxis=128)
 
-        legacy = np.asarray(get_scaled_image(path, orient='legacy'))
-        wcs = np.asarray(get_scaled_image(path, orient='wcs'))
+        oriented = np.asarray(get_scaled_image(path))
+        flipped = np.asarray(get_scaled_image(path, ops=None))
 
-        self.assertFalse(np.array_equal(legacy, wcs))
+        self.assertFalse(np.array_equal(oriented, flipped))
 
-    def test_wcs_and_legacy_agree_for_a_rotation_0_instrument(self):
+    def test_a_rotation_0_instrument_keeps_the_plain_flip(self):
         '''fa11, fa16, sq31 - already correct today, so they must not move.'''
         path = write_fits(self.path('fa11.fits'), lco_cd(0.0, True, False), naxis=128)
 
-        legacy = np.asarray(get_scaled_image(path, orient='legacy'))
-        wcs = np.asarray(get_scaled_image(path, orient='wcs'))
+        oriented = np.asarray(get_scaled_image(path))
+        flipped = np.asarray(get_scaled_image(path, ops=None))
 
-        self.assertTrue(np.array_equal(legacy, wcs))
+        self.assertTrue(np.array_equal(oriented, flipped))
 
-    def test_wcs_falls_back_to_legacy_without_a_wcs(self):
+    def test_a_frame_without_a_wcs_falls_back_to_the_flip(self):
         path = write_fits(self.path('nowcs.fits'), {}, naxis=128)
 
-        legacy = np.asarray(get_scaled_image(path, orient='legacy'))
         with self.assertLogs(level='WARNING') as logged:
-            wcs = np.asarray(get_scaled_image(path, orient='wcs'))
+            oriented = np.asarray(get_scaled_image(path))
+        flipped = np.asarray(get_scaled_image(path, ops=None))
 
-        self.assertTrue(np.array_equal(legacy, wcs))
+        self.assertTrue(np.array_equal(oriented, flipped))
         # a service converting thousands of frames needs to know which one fell back
         self.assertIn(path, logged.output[0])
 
     def test_explicit_zmin_zmax_still_orients(self):
         path = write_fits(self.path('fa14.fits'), lco_cd(180.0, True, False), naxis=128)
 
-        legacy = np.asarray(get_scaled_image(path, zmin=900, zmax=2000, orient='legacy'))
-        wcs = np.asarray(get_scaled_image(path, zmin=900, zmax=2000, orient='wcs'))
+        oriented = np.asarray(get_scaled_image(path, zmin=900, zmax=2000))
+        flipped = np.asarray(get_scaled_image(path, zmin=900, zmax=2000, ops=None))
 
-        self.assertFalse(np.array_equal(legacy, wcs))
+        self.assertFalse(np.array_equal(oriented, flipped))
 
 
 if __name__ == '__main__':

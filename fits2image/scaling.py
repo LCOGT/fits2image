@@ -7,7 +7,7 @@ from astropy.io import fits
 import numpy as np
 from PIL import Image
 
-from fits2image.orientation import orient_image
+from fits2image.orientation import DERIVE_FROM_HEADER, orient_image
 
 
 def quick_scale_image(input_fits: dict):
@@ -51,15 +51,16 @@ def quick_scale_image(input_fits: dict):
     return None
 
 
-def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adjust=2.5, flip_v=True, percentile=99.5, median=False, orient='legacy'):
+def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adjust=2.5, flip_v=True, percentile=99.5, median=False, ops=DERIVE_FROM_HEADER):
     ''' Helper function to get a scaled PIL Image given a fits or compressed fits file path and scale parameters
     :param path_to_fits:
     :param zmin:
     :param zmax:
     :param contrast:
     :param gamma_adjust:
-    :param flip_v: Should the image be flipped vertically? Ignored when orient='wcs' succeeds.
-    :param orient: 'wcs' to put north up from the frame's CD matrix, 'legacy' for the fixed flip
+    :param flip_v: Should the image be flipped vertically? Only used when the frame has no usable WCS.
+    :param ops: the orientation transform to apply, for a caller that has already resolved one
+        across a group of frames. Defaults to deriving it from this frame's own header.
     :return:
     '''
     data, header = get_reduced_dimensionality_data(path_to_fits)
@@ -71,7 +72,7 @@ def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adj
     if median:
         scaled_data = recalculate_median(scaled_data,percentile)
     im = Image.fromarray(scaled_data)
-    return orient_image(im, header, orient=orient, flip_v=flip_v, frame=path_to_fits)
+    return orient_image(im, header, flip_v=flip_v, frame=path_to_fits, ops=ops)
 
 
 def stack_images(images_to_stack):

@@ -119,29 +119,33 @@ class TestOrientImage(unittest.TestCase):
         self.array = np.arange(64, dtype=np.uint8).reshape(8, 8)
         self.image = Image.fromarray(self.array)
 
-    def test_legacy_applies_the_fixed_vertical_flip(self):
-        oriented = orient_image(self.image, header_with_cd(lco_cd(90.0)), orient='legacy')
+    def test_a_frame_without_a_wcs_gets_the_fixed_vertical_flip(self):
+        with self.assertLogs(level='WARNING'):
+            oriented = orient_image(self.image, {}, flip_v=True)
         self.assertTrue(np.array_equal(np.asarray(oriented), np.flipud(self.array)))
 
-    def test_legacy_honours_flip_v_false(self):
-        oriented = orient_image(self.image, None, orient='legacy', flip_v=False)
+    def test_a_frame_without_a_wcs_honours_flip_v_false(self):
+        with self.assertLogs(level='WARNING'):
+            oriented = orient_image(self.image, None, flip_v=False)
         self.assertTrue(np.array_equal(np.asarray(oriented), self.array))
 
-    def test_wcs_falls_back_to_the_legacy_flip_without_a_wcs(self):
-        with self.assertLogs(level='WARNING'):
-            oriented = orient_image(self.image, {}, orient='wcs', flip_v=True)
-        self.assertTrue(np.array_equal(np.asarray(oriented), np.flipud(self.array)))
-
-    def test_wcs_ignores_flip_v_when_it_has_a_wcs(self):
+    def test_flip_v_is_ignored_when_the_frame_has_a_wcs(self):
         header = header_with_cd(lco_cd(180.0, True, False))
-        with_flip = orient_image(self.image, header, orient='wcs', flip_v=True)
-        without_flip = orient_image(self.image, header, orient='wcs', flip_v=False)
+        with_flip = orient_image(self.image, header, flip_v=True)
+        without_flip = orient_image(self.image, header, flip_v=False)
         self.assertTrue(np.array_equal(np.asarray(with_flip), np.asarray(without_flip)))
 
-    def test_an_unknown_orient_is_rejected(self):
-        with self.assertRaises(ValueError):
-            orient_image(self.image, None, orient='north-up')
+    def test_a_wcs_frame_is_oriented_rather_than_flipped(self):
+        oriented = orient_image(self.image, header_with_cd(lco_cd(90.0)))
+        self.assertFalse(np.array_equal(np.asarray(oriented), np.flipud(self.array)))
 
+    def test_given_ops_win_over_the_frames_own_header(self):
+        header = header_with_cd(lco_cd(180.0, True, False))
+        given = orient_image(self.image, header, ops=(False, 0))
+        self.assertTrue(np.array_equal(np.asarray(given), self.array))
 
-if __name__ == '__main__':
-    unittest.main()
+    def test_given_ops_of_none_falls_back_without_reading_the_header(self):
+        header = header_with_cd(lco_cd(180.0, True, False))
+        with self.assertLogs(level='WARNING'):
+            oriented = orient_image(self.image, header, flip_v=True, ops=None)
+        self.assertTrue(np.array_equal(np.asarray(oriented), np.flipud(self.array)))
