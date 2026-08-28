@@ -20,9 +20,9 @@ CD_KEYWORDS = ('CD1_1', 'CD1_2', 'CD2_1', 'CD2_2')
 # Below this the CD matrix is not invertible in any useful sense.
 MIN_DETERMINANT = 1e-20
 
-# Tells orient_image to work the transform out from the frame's own header, which a
-# caller that has already resolved one across a group of frames does not want.
-DERIVE_FROM_HEADER = object()
+# The default for the transform argument. None is already taken: it means apply no
+# transform and take the flip_v fallback.
+DERIVE_FROM_HEADER = 'derive from header'
 
 
 def get_cd_matrix(header):
@@ -139,7 +139,7 @@ def orient_image(image, header, flip_v=True, frame='', transform=DERIVE_FROM_HEA
                 group of frames. Defaults to deriving it from this frame's own header.
     :return: a new Pillow Image
     '''
-    if transform is DERIVE_FROM_HEADER:
+    if transform == DERIVE_FROM_HEADER:
         transform = orientation_transform(header)
 
     if transform is not None:

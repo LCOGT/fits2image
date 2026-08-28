@@ -51,22 +51,21 @@ def _shared_orientation(frame_transforms):
         return None
     if len(set(resolved)) > 1:
         logging.warning('Colour frames disagree on a WCS orientation they are expected to '
-                        'share. Using {}, from the first frame that carries one.'.format(resolved[0]))
+                        'share. Using %s, from the first frame that carries one.', resolved[0])
     return resolved[0]
 
 
 def _stack_orientation(paths):
-    '''The shared transform for a colour stack, read from the frames' headers.'''
+    '''The shared transform for a colour stack, read from the frames' headers.
+
+    Raises whatever opening a frame raises, so an unreadable file is reported once,
+    here, rather than again when the scaling loop reaches it.
+    '''
     frame_transforms = []
     for path in paths:
-        try:
-            transform = orientation_transform(get_frame_header(path))
-        except Exception as err:
-            # The scaling loop opens the same file next and reports the real failure.
-            logging.debug('could not read the header of {}: {}'.format(path, err))
-            continue
+        transform = orientation_transform(get_frame_header(path))
         if transform is None:
-            logging.debug('no usable WCS in {}, taking the orientation of its siblings'.format(path))
+            logging.debug('no usable WCS in %s, taking the orientation of its siblings', path)
         frame_transforms.append(transform)
     return _shared_orientation(frame_transforms)
 
@@ -122,7 +121,13 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
         logging.error('zmax must be the same length as path_to_fits')
         return False
 
-    transform = _stack_orientation(path_to_fits) if color else DERIVE_FROM_HEADER
+    transform = DERIVE_FROM_HEADER
+    if color:
+        try:
+            transform = _stack_orientation(path_to_fits)
+        except FileNotFoundError as err:
+            logging.error('File %s not found', err.filename)
+            return False
 
     scaled_images = []
 
@@ -132,12 +137,12 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
                 get_scaled_image(path, zmin=zmin_entry, zmax=zmax_entry, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True, percentile=percentile, median=median, transform=transform)
             )
         except FileNotFoundError:
-            logging.error('File {} not found'.format(path))
+            logging.error('File %s not found', path)
             return False
 
     if color:
         if len(scaled_images) != 3:
-            logging.error(f'Need exactly 3 FITS files (RVB) to create a color {file_type}')
+            logging.error('Need exactly 3 FITS files (RVB) to create a color %s', file_type)
             return False
         scaled_images = [stack_images(scaled_images)]
 
@@ -148,7 +153,7 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
                 _add_label(im, label_text, label_font)
             except (OSError, ValueError, AttributeError) as err:
                 # just log a warning and continue - its okay if you cant write a label
-                logging.warning('could not write label with font {}. Ignoring label text. Reason: {}'.format(label_font, err))
+                logging.warning('could not write label with font %s. Ignoring label text. Reason: %s', label_font, err)
 
         try:
             path_only = os.path.dirname(path_to_output)
@@ -161,7 +166,7 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
                 filename = '{0}-{1}'.format(filename, idx)
             im.save(filename, file_type, quality=quality, progressive=progressive)
         except IOError as ioerr:
-            logging.warning(f'Error saving {file_type}: {path_to_output}. Reason: {str(ioerr)}')
+            logging.warning('Error saving %s: %s. Reason: %s', file_type, path_to_output, ioerr)
             return False
     return True
 
@@ -175,7 +180,7 @@ def fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200, zl
     image, so a quarter turn swaps the extent of the grid.
     '''
     if not os.path.exists(path_to_fits):
-        logging.warning('fits file {} does not exist'.format(path_to_fits))
+        logging.warning('fits file %s does not exist', path_to_fits)
         return False
 
     im = get_scaled_image(path_to_fits, zmin=zmin, zmax=zmax, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True)
@@ -194,7 +199,7 @@ def fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200, zl
             _add_label(im, label_text, label_font)
         except (OSError, ValueError, AttributeError) as err:
             # just log a warning and continue - its okay if you cant write a label
-            logging.warning('could not write label with font {}. Ignoring label text. Reason: {}'.format(label_font, err))
+            logging.warning('could not write label with font %s. Ignoring label text. Reason: %s', label_font, err)
 
     try:
         path_only = os.path.dirname(path_to_jpg)
@@ -202,7 +207,7 @@ def fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200, zl
             os.makedirs(path_only)
         im.save(path_to_jpg, 'jpeg', quality=quality, progressive=progressive)
     except IOError as ioerr:
-        logging.warning('Error saving jpeg: {}. Reason: {}'.format(path_to_jpg, str(ioerr)))
+        logging.warning('Error saving jpeg: %s. Reason: %s', path_to_jpg, ioerr)
         return False
     return True
 
@@ -395,5 +400,5 @@ def multi_fits_to_img(input_fits, path_to_output, blending_algorithm='sum', widt
         im.save(filename, file_type, quality=quality, progressive=progressive)
         return True
     except IOError as ioerr:
-        logging.warning(f'Error saving {file_type}: {path_to_output}. Reason: {str(ioerr)}')
+        logging.warning('Error saving %s: %s. Reason: %s', file_type, path_to_output, ioerr)
         return False

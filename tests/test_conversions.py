@@ -208,12 +208,16 @@ class TestStackOrientation(ConversionTestCase):
         with self.assertLogs(level='WARNING'):
             self.assertIsNone(_stack_orientation(self.stack({}, {}, {})))
 
-    def test_an_unreadable_frame_contributes_nothing(self):
-        '''The scaling loop opens the same file next and reports the real failure.'''
+    def test_an_unreadable_frame_raises_rather_than_being_skipped(self):
+        '''Reported here, once, rather than again when the scaling loop reaches it.'''
         cd = lco_cd(180.0, True, False)
-        frames = self.stack(cd, cd) + [self.path('nope.fits')]
+        missing = self.path('nope.fits')
+        frames = self.stack(cd, cd) + [missing]
 
-        self.assertEqual(_stack_orientation(frames), self.transform_for(cd))
+        with self.assertRaises(FileNotFoundError) as raised:
+            _stack_orientation(frames)
+
+        self.assertEqual(raised.exception.filename, missing)
 
 
 class TestColourStackOrientation(ConversionTestCase):
@@ -251,11 +255,16 @@ class TestColourStackOrientation(ConversionTestCase):
 
         self.assertEqual(Image.open(out).mode, 'RGB')
 
-    def test_a_missing_frame_still_returns_false(self):
+    def test_a_missing_frame_returns_false_and_is_reported_once(self):
         cd = lco_cd(180.0, True, False)
-        frames = self.stack(cd, cd) + [self.path('nope.fits')]
+        missing = self.path('nope.fits')
+        frames = self.stack(cd, cd) + [missing]
 
-        self.assertFalse(fits_to_img(frames, self.path('out.jpg'), 'jpeg', color=True))
+        with self.assertLogs(level='ERROR') as logged:
+            self.assertFalse(fits_to_img(frames, self.path('out.jpg'), 'jpeg', color=True))
+
+        self.assertEqual(len(logged.output), 1, logged.output)
+        self.assertIn(missing, logged.output[0])
 
 
 class TestMultiFitsOrientation(ConversionTestCase):
