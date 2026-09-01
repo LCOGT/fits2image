@@ -1,10 +1,13 @@
 import math
 import logging
+from contextlib import contextmanager
 from pathlib import Path
 
 from astropy.io import fits
 import numpy as np
 from PIL import Image
+
+from fits2image.orientation import DERIVE_FROM_HEADER, orient_image, orientation_transform
 
 
 def quick_scale_image(input_fits: dict):
@@ -21,11 +24,16 @@ def quick_scale_image(input_fits: dict):
         'zmin': zmin (only for zscale),
         'zmax': zmax (only for zscale)
     }
+    Reading a fits_path also stashes 'bitpix', 'saturate' and the frame's orientation
+    'transform' back into the input dict.
     '''
     if 'fits_path' in input_fits:
         data, header = get_reduced_dimensionality_data(input_fits['fits_path'])
         input_fits['bitpix'] = header.get('BITPIX', input_fits.get('bitpix', 16))
         input_fits['saturate'] = header.get('SATURATE', input_fits.get('saturate', 0))
+        # Stashed rather than applied, since the caller resolves one transform across
+        # the frames it is composing. An input given as fits_data has no header to read.
+        input_fits['transform'] = orientation_transform(header)
     else:
         data = input_fits['fits_data']
 
@@ -48,27 +56,28 @@ def quick_scale_image(input_fits: dict):
     return None
 
 
-def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adjust=2.5, flip_v=True, percentile=99.5, median=False):
+def get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1, gamma_adjust=2.5, flip_v=True, percentile=99.5, median=False, transform=DERIVE_FROM_HEADER):
     ''' Helper function to get a scaled PIL Image given a fits or compressed fits file path and scale parameters
     :param path_to_fits:
     :param zmin:
     :param zmax:
     :param contrast:
     :param gamma_adjust:
-    :param flip_v: Should the image be flipped vertically?
+    :param flip_v: Should the image be flipped vertically? Only used when the frame has no usable WCS.
+    :param transform: the orientation transform to apply, for a caller that has already resolved one
+        across a group of frames. Defaults to deriving it from this frame's own header.
     :return:
     '''
-    if zmin or zmax:
-        data, header = get_reduced_dimensionality_data(path_to_fits)
+    data, header = get_reduced_dimensionality_data(path_to_fits)
+    # linear_scale needs both limits, and 0 is a limit like any other
+    if zmin is not None and zmax is not None:
         scaled_data = linear_scale(data, zmin, zmax, gamma_adjust=gamma_adjust)
     else:
-        scaled_data = auto_scale(path_to_fits, contrast=contrast, gamma_adjust=gamma_adjust)
+        scaled_data = auto_scale_data(data, header, contrast=contrast, gamma_adjust=gamma_adjust)
     if median:
         scaled_data = recalculate_median(scaled_data,percentile)
     im = Image.fromarray(scaled_data)
-    if flip_v:
-        im = im.transpose(Image.FLIP_TOP_BOTTOM)
-    return im
+    return orient_image(im, header, flip_v=flip_v, frame=path_to_fits, transform=transform)
 
 
 def stack_images(images_to_stack):
@@ -153,7 +162,13 @@ def least_squares_line_fit(sample_data, max_iterations=5, min_fit=0.5):
         residuals = result[1]
 
         # Need to check residual and remove outliers before refit if residual is large
-        mean_residual = residuals / nfitsamples
+        # lstsq returns the sum of squared residuals as a 1-element array, or an empty
+        # one when the fit is rank deficient. numpy 2 no longer converts either to a
+        # float implicitly, so do it here and compute the residual directly if absent.
+        if residuals.size:
+            mean_residual = float(residuals[0]) / nfitsamples
+        else:
+            mean_residual = float(np.mean((y - (slope * x + y_intercept)) ** 2))
         rms = math.sqrt(mean_residual)
         fitline = np.array(range(nfitsamples))
         fitline = fitline * slope
@@ -249,10 +264,46 @@ def auto_scale(path_to_frame, nsamples=2000, max_val=255, contrast=0.1, gamma_ad
     linear scale
     '''
     data, header = get_reduced_dimensionality_data(path_to_frame)
+    return auto_scale_data(data, header, nsamples=nsamples, max_val=max_val, contrast=contrast,
+                           gamma_adjust=gamma_adjust, max_fit_iterations=max_fit_iterations)
+
+
+def auto_scale_data(data, header, nsamples=2000, max_val=255, contrast=0.1, gamma_adjust=2.5, max_fit_iterations=1):
+    '''As auto_scale, for a caller that has already read the data and header
+    '''
     samples = extract_samples(data, header, nsamples)
     median = np.median(samples)
     zmin, zmax, rms = calc_zscale_min_max(samples, contrast=contrast, iterations=max_fit_iterations)
     return linear_scale(data, median, zmax, max_val, gamma_adjust)
+
+
+@contextmanager
+def _open_frame(path_to_frame):
+    '''Yield the HDUList of a fits or compressed fits file.'''
+    if type(path_to_frame) == str:
+        path_to_frame = Path(path_to_frame)
+    with path_to_frame.open('rb') as p:
+        with fits.open(p) as hdul:
+            yield hdul
+
+
+def _find_data_hdu(hdul):
+    '''The first HDU holding a 2D image.
+
+    For most images the shape of first HDU data is () and the first HDU data is the
+    dimensions of the CCD.
+    For sinistro, the first HDU data has shape (0,0) and subsequent HDUs are 1/4 of
+    the chip dimensions.
+    Therefore, just checking for a shape with 2 elements is not sufficient to identify data.
+    We also need to check for non-zero shape elements.
+    '''
+    for hdu in hdul:
+        # shape comes from the HDU's NAXIS cards, so this never reads the array. A table
+        # extension has no shape at all, and an axis of length 0 holds no pixels.
+        shape = getattr(hdu, 'shape', ())
+        if len(shape) == 2 and all(shape):
+            return hdu
+    raise Exception('No fits data found')
 
 
 def get_reduced_dimensionality_data(path_to_frame):
@@ -261,22 +312,41 @@ def get_reduced_dimensionality_data(path_to_frame):
     :param path_to_frame: path to fits file
     :return: header and modified data from astropy.io.fits
     '''
-    if type(path_to_frame) == str:
-        path_to_frame = Path(path_to_frame)
-    with path_to_frame.open('rb') as p:
-        with fits.open(p) as hdul:
-            for hdu in hdul:
-                '''
-                For most images the shape of first HDU data is () and the first HDU data is the
-                dimensions of the CCD.
-                For sinistro, the first HDU data has shape (0,0) and subsequent HDUs are 1/4 of
-                the chip dimensions.
-                Therefore, just checking for a shape with 2 elements is not sufficient to identify data.
-                We also need to check for non-zero shape elements.
-                '''
-                if len(np.shape(hdu)) == 2 and np.shape(hdu)[0] > 0:
-                    return hdu.data, hdu.header
-        raise Exception('No fits data found')
+    with _open_frame(path_to_frame) as hdul:
+        hdu = _find_data_hdu(hdul)
+        return hdu.data, _merge_primary_header(hdul, hdu)
+
+
+def get_frame_header(path_to_frame):
+    '''The header get_reduced_dimensionality_data would return, without reading the pixels.
+
+    Shapes come from the HDU headers, so selecting the data HDU never touches the array.
+    :param path_to_frame: path to fits file
+    :return: the merged header of the HDU holding the image data
+    '''
+    with _open_frame(path_to_frame) as hdul:
+        return _merge_primary_header(hdul, _find_data_hdu(hdul))
+
+
+def _merge_primary_header(hdul, data_hdu):
+    '''Fill in keywords the data HDU lacks from the primary header.
+
+    Sinistro keeps the full 243-card header on the primary HDU and puts the pixels in
+    four 17-card quadrant extensions, so the WCS and SATURATE are not on the HDU the
+    data came from. The data HDU's own cards always win, which keeps BITPIX and
+    NAXIS1/2 describing the array actually returned. CRPIX refers to a different
+    origin per quadrant, but the rotation and parity in CD do not, which is all the
+    orientation code reads.
+
+    The result is for looking keywords up. It can carry both SIMPLE and XTENSION, so it
+    is not a header to write back out.
+    '''
+    primary = hdul[0]
+    if data_hdu is primary:
+        return data_hdu.header
+    merged = primary.header.copy()
+    merged.update(data_hdu.header)
+    return merged
 
 
 def percentile_scale(path_to_frame, lower_percentile=5.0, upper_percentile=99.0):

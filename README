@@ -1,6 +1,8 @@
 fits2image - Shared library for converting fits files to jpeg, scaling them, etc
 
-The fits2image package provides common libraries for the frame_database and telops
+The fits2image package provides common libraries for thumbnail-to-archive-service,
+ptr_datalab, neoexchange and serol. It is also a dependency of the TOM Toolkit
+(tomtoolkit), through which most third-party users pull it.
 
 v 0.1.0 - Initial version with conversion code from frame_database
 v 0.1.1 - Changed the fits_to_* functions to return False if they fail (and log warnings), otherwise return True
@@ -26,3 +28,9 @@ V 0.4.7 - No functional change
 V 0.4.8 - Add fits_to_tif and fits_to_jpg convenience functions
 V 0.4.9 - Allow fits_to_img to take a list of zmin and zmax parameters (one for each color channel) when creating an RGB stack.
 V 0.4.10 - Crop fallback whens stacking images that can't be aligned and have different dimensions
+V 0.4.11 - Allow a gamma adjustment to be passed through to the color stacking path
+V 1.0.0 - Output images are oriented north up and east left from the frame's CD matrix, snapped
+          to the nearest 90 degrees. This changes the output of all callers so bumping a major version.
+          A frame with no WCS falls back to a fixed vertical flip.
+          A quarter turn swaps the width and height of a non-square frame,
+          so the output comes out in the other aspect.

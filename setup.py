@@ -27,11 +27,15 @@ DESCRIPTION = """Common libraries for the conversion and scaling of fits images"
 
 setup(
     name="fits2image",
-    version="0.4.11",
+    version="1.0.0",
     description=DESCRIPTION,
     long_description=DESCRIPTION,
     author='Jon Nation',
     author_email='jnation@lcogt.net',
-    packages=find_packages('.', exclude=[]),
-    install_requires=['numpy', 'astropy', 'Pillow']
+    packages=find_packages('.', exclude=['tests', 'tests.*']),
+    # 3.10 is a hard floor: conversions.py uses match statements.
+    python_requires='>=3.10',
+    # Floors are the oldest combination the test suite is known to pass on. There are
+    # deliberately no upper bounds - the range is proved by CI rather than guessed at here.
+    install_requires=['numpy>=1.22', 'astropy>=5.0', 'Pillow>=8.4']
 )

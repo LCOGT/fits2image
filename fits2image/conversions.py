@@ -1,4 +1,5 @@
-from fits2image.scaling import get_scaled_image, stack_images, quick_scale_image, DEFAULT_GAMMA_LUT
+from fits2image.scaling import get_scaled_image, stack_images, quick_scale_image, get_frame_header, DEFAULT_GAMMA_LUT
+from fits2image.orientation import DERIVE_FROM_HEADER, orient_array, orientation_transform
 
 import logging
 import os
@@ -25,14 +26,48 @@ def _add_label(image, label_text, label_font):
     font_size = 20
     offset = 4
     font = ImageFont.truetype(label_font, font_size)
-    (font_width, font_height) = font.getsize(label_text)
-    while font_width > (int(width)-offset):
+    # ImageDraw.text measures y from the ascender line, so the label is placed from
+    # bottom rather than from the ink height, bottom - top, which drops a string with
+    # no ascenders below the edge of the frame.
+    (left, _, right, bottom) = font.getbbox(label_text)
+    while right - left > (int(width) - offset) and font_size > 1:
         font_size -= 1
         font = ImageFont.truetype(label_font, font_size)
-        (font_width, font_height) = font.getsize(label_text)
+        (left, _, right, bottom) = font.getbbox(label_text)
 
     d = ImageDraw.Draw(image)
-    d.text((offset, int(height) - offset - font_height), label_text, font=font, fill=255)
+    d.text((offset, int(height) - offset - bottom), label_text, font=font, fill=255)
+
+
+def _shared_orientation(frame_transforms):
+    '''The one transform to apply to every channel of a colour composite.
+
+    :param frame_transforms: each frame's own (mirror, k), or None where it has no usable WCS
+    :return: (mirror, k), or None if no frame carries a usable WCS
+    '''
+    resolved = [t for t in frame_transforms if t is not None]
+    if not resolved:
+        logging.warning('No colour frame carries a usable WCS. Falling back for all of them.')
+        return None
+    if len(set(resolved)) > 1:
+        logging.warning('Colour frames disagree on a WCS orientation they are expected to '
+                        'share. Using %s, from the first frame that carries one.', resolved[0])
+    return resolved[0]
+
+
+def _stack_orientation(paths):
+    '''The shared transform for a colour stack, read from the frames' headers.
+
+    Raises whatever opening a frame raises, so an unreadable file is reported once,
+    here, rather than again when the scaling loop reaches it.
+    '''
+    frame_transforms = []
+    for path in paths:
+        transform = orientation_transform(get_frame_header(path))
+        if transform is None:
+            logging.debug('no usable WCS in %s, taking the orientation of its siblings', path)
+        frame_transforms.append(transform)
+    return _shared_orientation(frame_transforms)
 
 
 def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, progressive=False, label_text='', label_font='DejaVuSansMono.ttf',
@@ -55,8 +90,11 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
         :param color: should the output image be color?
         :param percentile: the percentile to use for the median calculation
         :param median: should the median be recalculated?
-    '''
 
+        Each frame is oriented north-up and east-left from its CD matrix, falling back to a
+        fixed vertical flip when it carries no usable WCS. A quarter turn swaps the width and
+        height of a non-square frame, so the output comes out in the other aspect.
+    '''
     # If path_to_fits is not a list, make it a list so that we can loop through it
     if type(path_to_fits) != list:
         path_to_fits = [path_to_fits]
@@ -83,20 +121,28 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
         logging.error('zmax must be the same length as path_to_fits')
         return False
 
+    transform = DERIVE_FROM_HEADER
+    if color:
+        try:
+            transform = _stack_orientation(path_to_fits)
+        except FileNotFoundError as err:
+            logging.error('File %s not found', err.filename)
+            return False
+
     scaled_images = []
 
     for path, zmin_entry, zmax_entry in zip(path_to_fits, zmin, zmax):
         try:
             scaled_images.append(
-                get_scaled_image(path, zmin=zmin_entry, zmax=zmax_entry, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True, percentile=percentile, median=median)
+                get_scaled_image(path, zmin=zmin_entry, zmax=zmax_entry, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True, percentile=percentile, median=median, transform=transform)
             )
         except FileNotFoundError:
-            logging.error('File {} not found'.format(path))
+            logging.error('File %s not found', path)
             return False
 
     if color:
         if len(scaled_images) != 3:
-            logging.error(f'Need exactly 3 FITS files (RVB) to create a color {file_type}')
+            logging.error('Need exactly 3 FITS files (RVB) to create a color %s', file_type)
             return False
         scaled_images = [stack_images(scaled_images)]
 
@@ -105,9 +151,9 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
         if label_text:
             try:
                 _add_label(im, label_text, label_font)
-            except IOError:
+            except (OSError, ValueError, AttributeError) as err:
                 # just log a warning and continue - its okay if you cant write a label
-                logging.warning('font {} could not be found on the system. Ignoring label text.'.format(label_font))
+                logging.warning('could not write label with font %s. Ignoring label text. Reason: %s', label_font, err)
 
         try:
             path_only = os.path.dirname(path_to_output)
@@ -120,7 +166,7 @@ def fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200, 
                 filename = '{0}-{1}'.format(filename, idx)
             im.save(filename, file_type, quality=quality, progressive=progressive)
         except IOError as ioerr:
-            logging.warning(f'Error saving {file_type}: {path_to_output}. Reason: {str(ioerr)}')
+            logging.warning('Error saving %s: %s. Reason: %s', file_type, path_to_output, ioerr)
             return False
     return True
 
@@ -129,9 +175,12 @@ def fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200, zl
                            label_text='', label_font='DejaVuSansMono.ttf', zmin=None, zmax=None, gamma_adjust=2.5,
                            contrast=0.1, quality=75):
     '''Create a slice of a zoomed in jpg from a fits file
+
+    The frame is oriented north-up before slicing, and row and col index the oriented
+    image, so a quarter turn swaps the extent of the grid.
     '''
     if not os.path.exists(path_to_fits):
-        logging.warning('fits file {} does not exist'.format(path_to_fits))
+        logging.warning('fits file %s does not exist', path_to_fits)
         return False
 
     im = get_scaled_image(path_to_fits, zmin=zmin, zmax=zmax, contrast=contrast, gamma_adjust=gamma_adjust, flip_v=True)
@@ -148,9 +197,9 @@ def fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200, zl
     if label_text:
         try:
             _add_label(im, label_text, label_font)
-        except IOError:
+        except (OSError, ValueError, AttributeError) as err:
             # just log a warning and continue - its okay if you cant write a label
-            logging.warning('font {} could not be found on the system. Ignoring label text.'.format(label_font))
+            logging.warning('could not write label with font %s. Ignoring label text. Reason: %s', label_font, err)
 
     try:
         path_only = os.path.dirname(path_to_jpg)
@@ -158,7 +207,7 @@ def fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200, zl
             os.makedirs(path_only)
         im.save(path_to_jpg, 'jpeg', quality=quality, progressive=progressive)
     except IOError as ioerr:
-        logging.warning('Error saving jpeg: {}. Reason: {}'.format(path_to_jpg, str(ioerr)))
+        logging.warning('Error saving jpeg: %s. Reason: %s', path_to_jpg, ioerr)
         return False
     return True
 
@@ -189,10 +238,13 @@ def multi_fits_to_img(input_fits, path_to_output, blending_algorithm='sum', widt
     file_type: 'jpeg' or 'tiff'
     blending_algorithm: The algorithm used to combine the color channels from input images into the output rgb
         options - sum, max, min, screen, multiply, overlay.
+
+    Any input carrying a usable WCS supplies the orientation for all of them. They fall
+    back to a fixed vertical flip only when none of them does.
     '''
     # Check that all inputs are present or raise and exception
     for input_dict in input_fits:
-        if 'fits_path' not in input_dict and 'fits_data' not in 'input_dict':
+        if 'fits_path' not in input_dict and 'fits_data' not in input_dict:
             raise ValueError("Each input must have either 'fits_path' or 'fits_data' set")
         if 'color' not in input_dict or len(input_dict['color']) != 3 or any(color > 1 or color < 0 for color in input_dict['color']):
             raise ValueError("Each input must have a 'color' field with 3 elements [r,g,b], where each element is between 0 and 1")
@@ -210,6 +262,11 @@ def multi_fits_to_img(input_fits, path_to_output, blending_algorithm='sum', widt
         # First get the scaled version of the image given your scaling algorithm and params
         input_dict['scaled_image'] = quick_scale_image(input_dict)
         largest_dtype = max(largest_dtype, input_dict['scaled_image'].dtype)
+
+    # Before the crop below, since a quarter turn changes which axis is the long one.
+    transform = _shared_orientation([input_dict.get('transform') for input_dict in input_fits])
+    for input_dict in input_fits:
+        input_dict['scaled_image'] = orient_array(input_dict['scaled_image'], transform)
 
     # Then check if images are same size and if not crop them to be the min_width/min_height
     shapes = [input_dict['scaled_image'].shape for input_dict in input_fits]
@@ -254,7 +311,7 @@ def multi_fits_to_img(input_fits, path_to_output, blending_algorithm='sum', widt
             combined_image[:, :, 2] = input_dict['scaled_image'] * color[2]
         case _:
             # All others can start with an empty array since they are additive
-            combined_image = np.ndarray((min_width, min_height, 3), dtype=largest_dtype)
+            combined_image = np.zeros((min_width, min_height, 3), dtype=largest_dtype)
 
     # Then combine all the scaled images in r, g, b, channels of a final image stack
     match blending_algorithm:
@@ -331,9 +388,8 @@ def multi_fits_to_img(input_fits, path_to_output, blending_algorithm='sum', widt
     combined_image.round(out=combined_image)
     gamma_image = np.take(DEFAULT_GAMMA_LUT, combined_image.astype('uint8'))
     im = Image.fromarray(gamma_image)
-    im = im.transpose(Image.FLIP_TOP_BOTTOM)
     im.thumbnail((width, height), Image.LANCZOS)
-    # And save off the thumbnail
+    # And save off the image
     try:
         path_only = os.path.dirname(path_to_output)
         filename = path_to_output
@@ -344,5 +400,5 @@ def multi_fits_to_img(input_fits, path_to_output, blending_algorithm='sum', widt
         im.save(filename, file_type, quality=quality, progressive=progressive)
         return True
     except IOError as ioerr:
-        logging.warning(f'Error saving {file_type}: {path_to_output}. Reason: {str(ioerr)}')
+        logging.warning('Error saving %s: %s. Reason: %s', file_type, path_to_output, ioerr)
         return False
