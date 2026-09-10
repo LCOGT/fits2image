@@ -4,6 +4,238 @@ The fits2image package provides common libraries for thumbnail-to-archive-servic
 ptr_datalab, neoexchange and serol. It is also a dependency of the TOM Toolkit
 (tomtoolkit), through which most third-party users pull it.
 
+Installation
+------------
+
+Requires Python 3.10 or newer. Install with:
+
+    pip install fits2image
+
+NumPy, Astropy and Pillow are installed as dependencies. Import functions from
+the modules below; they are not re-exported from the package root.
+
+Quick start
+-----------
+
+    from fits2image.conversions import fits_to_jpg, fits_to_tif
+
+    success = fits_to_jpg("frame.fits", "./preview.jpg", width=800, height=800)
+    if not success:
+        raise RuntimeError("Could not create preview")
+
+    fits_to_tif("frame.fits", "./preview.tif", width=1024, height=1024)
+
+Use an output path with a directory component, such as "./preview.jpg" or
+"previews/frame.jpg". Missing directories are created automatically; a bare
+filename currently fails when the writer tries to create an empty directory path.
+
+File conversion API (fits2image.conversions)
+------------------------------------------
+
+    fits_to_img(path_to_fits, path_to_output, file_type, width=200, height=200,
+                progressive=False, label_text='', label_font='DejaVuSansMono.ttf',
+                zmin=None, zmax=None, gamma_adjust=2.5, contrast=0.1, quality=95,
+                color=False, percentile=99.5, median=False)
+
+Convert a FITS image to a Pillow-supported format, typically 'jpeg' or 'TIFF'.
+path_to_fits accepts a string path, pathlib.Path, or an object with open('rb').
+It can also be a list of such inputs. FITS compression is handled by Astropy.
+
+- width and height are maximum output dimensions in pixels. The image keeps
+  its oriented aspect ratio and is never enlarged.
+- zmin and zmax set the clipping limits before linear scaling and gamma
+  correction. Both must be supplied to use manual limits; otherwise scaling
+  uses a sampled zscale fit with the sample median as the lower limit.
+  contrast controls that fit. gamma_adjust=1 gives no gamma correction.
+- For a list of inputs, supplied zmin and zmax must be lists of matching length;
+  use None entries for automatic scaling. For a single input, pass both limits
+  as scalars or lists. If supplying only zmin, use a one-element list: a scalar
+  zmin with zmax=None currently raises TypeError during argument normalization.
+- color=True requires exactly three inputs in red, green, blue order (RVB in
+  the historical release notes). Each channel is scaled separately and then
+  stacked. Unequal dimensions are center-cropped to the smallest common size;
+  images must already be registered, as no alignment or reprojection is done.
+- With color=False, each input produces a separate grayscale image saved in
+  RGB mode. For a list, subsequent filenames append '-1', '-2', etc. to the
+  entire output path (for example, preview.jpg-1).
+- median=True subtracts the median of the scaled image and stretches it using
+  percentile as the upper reference. This is a background adjustment, not a
+  spatial median filter. percentile is ignored when median=False.
+- label_text adds a label near the lower left after resizing. label_font names
+  a TrueType font available to Pillow; label failures log a warning and conversion
+  continues. quality and progressive are passed to Pillow's output encoder;
+  their effect depends on the format (notably JPEG).
+
+Returns True after saving, or False for handled failures such as missing input
+files, mismatched limit-list lengths, an incorrect color-channel count, or output
+I/O errors. Other errors, including malformed FITS data and unsupported options,
+can raise exceptions; the return value is not a catch-all error interface.
+
+    fits_to_jpg(path_to_fits, path_to_jpg, width=200, height=200,
+                progressive=False, label_text='', label_font='DejaVuSansMono.ttf',
+                zmin=None, zmax=None, gamma_adjust=2.5, contrast=0.1, quality=95,
+                color=False, percentile=99.5, median=False)
+
+Convenience wrapper for fits_to_img with file_type='jpeg'; all other options
+and return behavior are the same.
+
+    fits_to_tif(path_to_fits, path_to_tif, width=200, height=200, contrast=0.1,
+                gamma_adjust=2.5, quality=100, percentile=99.5, median=False,
+                progressive=False)
+
+Convenience wrapper for fits_to_img with file_type='TIFF'. It exposes only the
+options shown above; use fits_to_img for TIFF labels, manual limits, or color.
+TIFF output is an 8-bit display image, not a preservation of the FITS pixel values.
+
+Example RGB composite with explicit per-channel limits:
+
+    from fits2image.conversions import fits_to_jpg
+
+    success = fits_to_jpg(
+        ["red.fits", "green.fits", "blue.fits"], "./rgb.jpg",
+        color=True, width=1000, height=1000,
+        zmin=[100, 120, 90], zmax=[2000, 2400, 1800], gamma_adjust=2.5,
+    )
+
+For individual tiles, use:
+
+    fits_to_zoom_slice_jpg(path_to_fits, path_to_jpg, row=0, col=0, side=200,
+                           zlevel=0, zfactor=1.25, progressive=False,
+                           label_text='', label_font='DejaVuSansMono.ttf',
+                           zmin=None, zmax=None, gamma_adjust=2.5, contrast=0.1,
+                           quality=75)
+
+Write a JPEG tile from a filesystem FITS path. row and col are zero-based tile
+indices in the oriented image, measured from its upper left. The source tile
+has side length step = int(side / zfactor**zlevel), starting at
+(col * step, row * step). It is cropped and thumbnailed into a side-by-side
+pixel bounding box. Pillow does not upscale: positive zoom levels can therefore
+produce tiles smaller than side. Choose parameters that keep step positive.
+Returns True on success or False for a missing file or output I/O failure;
+other exceptions may propagate. Label and scaling options work as above.
+
+    multi_fits_to_img(input_fits, path_to_output, blending_algorithm='sum',
+                      width=200, height=200, file_type='jpeg',
+                      progressive=False, quality=95)
+
+Blend a nonempty list of input dictionaries into one RGB image. Each dictionary
+must contain:
+
+- fits_path: a FITS input as above, or fits_data: a writable 2D floating-point
+  NumPy array. fits_path takes precedence if both are supplied. This scaling
+  path works in place, so FITS pixel arrays must also support floating-point
+  arithmetic; integer data can raise NumPy casting errors.
+- scale_algorithm: 'zscale' (the only supported value).
+- zmin and zmax: numeric clipping limits. Despite the algorithm name, these
+  must be explicit; None does not request automatic estimation here.
+- color: three weights (red, green, blue), each between 0 and 1.
+
+blending_algorithm accepts 'sum', 'min', 'max', 'multiply', 'screen', or 'overlay'.
+file_type must be lowercase 'jpeg' or 'tiff'. Inputs are oriented together and
+center-cropped to a common size before blending, then a fixed gamma of 2.5 is
+applied and the result is thumbnailed. This function modifies the dictionaries
+(including a scaled_image entry) and may modify supplied arrays in place. Pass
+array copies if the original data must be retained.
+
+Returns True on save, False for output I/O errors, and raises ValueError for
+invalid input fields or unsupported algorithms/formats. Read and scaling errors
+propagate.
+
+    import numpy as np
+    from fits2image.conversions import multi_fits_to_img
+
+    data = np.linspace(0, 1000, 256 * 256).reshape(256, 256)
+    success = multi_fits_to_img(
+        [{"fits_data": data.copy(), "scale_algorithm": "zscale",
+          "zmin": 0, "zmax": 1000, "color": (1.0, 0.5, 0.0)}],
+        "./orange.jpg", width=256, height=256,
+    )
+
+In-memory images and scaling (fits2image.scaling)
+------------------------------------------------
+
+    get_scaled_image(path_to_fits, zmin=None, zmax=None, contrast=0.1,
+                     gamma_adjust=2.5, flip_v=True, percentile=99.5,
+                     median=False, transform=DERIVE_FROM_HEADER)
+
+Return a full-resolution, oriented, 8-bit grayscale Pillow Image without saving
+or resizing. Scaling and median options behave as in fits_to_img. This function
+accepts scalar limits directly, and automatically scales if either is None.
+Exceptions propagate. transform and flip_v are described below.
+
+    from fits2image.scaling import get_scaled_image
+
+    image = get_scaled_image("frame.fits", zmin=100, zmax=2000)
+    image.thumbnail((800, 800))
+    image.save("preview.png")
+
+Other useful scaling helpers (these do not orient or resize the data):
+
+- get_reduced_dimensionality_data(path_to_frame) returns (data, header): a 2D
+  NumPy array and an Astropy Header. It selects the first nonempty 2D image HDU,
+  skipping tables, empty images and cubes. It does not combine extensions.
+  Missing primary-header keywords are merged into the selected HDU's header,
+  with the selected HDU taking precedence. The merged header is for lookups,
+  not for writing back to FITS. No eligible image raises an exception.
+- get_frame_header(path_to_frame) returns that same merged header without
+  reading the pixel array.
+- auto_scale(path_to_frame, nsamples=2000, max_val=255, contrast=0.1,
+  gamma_adjust=2.5, max_fit_iterations=1) returns a scaled uint8 NumPy array.
+  auto_scale_data(data, header, nsamples=2000, max_val=255, contrast=0.1,
+  gamma_adjust=2.5, max_fit_iterations=1) does the same with already-read data.
+  Sampling requires at least nsamples pixels; reduce nsamples for small images,
+  or supply explicit limits to get_scaled_image.
+- linear_scale(data, zmin, zmax, max_val=255, gamma_adjust=2.5) clips, scales,
+  and gamma-corrects into a new uint8 array. Equal limits are expanded by one
+  on either side with a warning. Keep max_val within the 8-bit range.
+- quick_scale_image(input_fits) uses the input dictionary described for
+  multi_fits_to_img, returning scaled floating-point data without gamma or
+  orientation. It modifies data in place and, for file inputs, adds bitpix,
+  saturate and transform metadata to the dictionary. color is not used here.
+- stack_images(images_to_stack) stacks three grayscale Pillow images in RGB
+  order, center-cropping if needed, and returns a Pillow Image.
+- percentile_scale(path_to_frame, lower_percentile=5.0, upper_percentile=99.0)
+  reads via astropy.io.fits.getdata and returns an 8-bit percentile stretch
+  without gamma correction. It does not use the merged-header reader above.
+- recalculate_median(data, percentile=99.5) returns a uint8 array after median
+  background subtraction and percentile stretching.
+
+Orientation (fits2image.orientation)
+-----------------------------------
+
+Since 1.0.0, conversions and get_scaled_image orient images toward north up and
+east left using CD1_1, CD1_2, CD2_1 and CD2_2. Rotation is snapped to the nearest
+90 degrees, not an exact sky reprojection. A quarter turn swaps width and height
+before thumbnailing or tiling. Without a usable CD matrix the default is a
+vertical flip; alternative WCS encodings such as PC/CDELT are not interpreted.
+
+Color stacks and multi_fits_to_img use the first usable orientation for every
+input, warning if usable transforms disagree. With no usable transform, all
+inputs receive the vertical flip. Raw fits_data inputs have no header; an
+optional transform entry can supply their orientation explicitly.
+
+- get_cd_matrix(header) returns a 2x2 NumPy matrix or None for missing,
+  nonfinite or degenerate CD values.
+- orientation_transform(header) returns (mirror, k), or None when unavailable.
+  mirror is a left-right reflection applied first; k is the number of subsequent
+  counterclockwise quarter turns (0 through 3).
+- apply_orientation(image, transform) and apply_orientation_array(array,
+  transform) apply an explicit (mirror, k) to a Pillow image or 2D NumPy array.
+- orient_image(image, header, flip_v=True, frame='',
+  transform=DERIVE_FROM_HEADER) derives the transform from the header by default.
+  frame identifies the input in fallback warnings. An explicit tuple overrides
+  the header; transform=None forces the flip_v fallback. flip_v=False alone
+  does not disable a usable header-derived orientation.
+- orient_array(array, transform, flip_v=True) applies a resolved transform,
+  falling back to a vertical flip when transform=None and flip_v=True.
+
+To preserve the stored pixel orientation when obtaining a Pillow image:
+
+    image = get_scaled_image("frame.fits", transform=None, flip_v=False)
+
+Release history
+---------------
+
 v 0.1.0 - Initial version with conversion code from frame_database
 v 0.1.1 - Changed the fits_to_* functions to return False if they fail (and log warnings), otherwise return True
         - Added a quality parameter for jpeg conversion quality for fits_to_* functions
