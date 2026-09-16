@@ -24,7 +24,7 @@ MIN_DETERMINANT = 1e-20
 # transform and take the flip_v fallback.
 DERIVE_FROM_HEADER = 'derive from header'
 
-# These image types only carry a prototype WCS and rotatating a spectrum to 
+# These image types only carry a prototype WCS and rotating a spectrum to 
 # "north" up can turn it on its side.
 NON_IMAGING_OBSTYPES = ('SPECTRUM', 'ARC', 'LAMPFLAT')
 
