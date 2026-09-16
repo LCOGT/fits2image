@@ -24,8 +24,8 @@ MIN_DETERMINANT = 1e-20
 # transform and take the flip_v fallback.
 DERIVE_FROM_HEADER = 'derive from header'
 
-# These carry a WCS that only ever describes the dispersion axis, not sky orientation,
-# so rotating a long thin spectrum to put "north" up can turn it on its side.
+# These image types only carry a prototype WCS and rotatating a spectrum to 
+# "north" up can turn it on its side.
 NON_IMAGING_OBSTYPES = ('SPECTRUM', 'ARC', 'LAMPFLAT')
 
 
