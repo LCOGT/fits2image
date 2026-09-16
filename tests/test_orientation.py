@@ -113,6 +113,17 @@ class TestCdMatrix(unittest.TestCase):
     def test_orientation_ops_returns_none_so_callers_can_fall_back(self):
         self.assertIsNone(orientation_transform({}))
 
+    def test_spectra_are_not_rotated_by_their_prototype_wcs(self):
+        '''SPECTRUM/ARC/LAMPFLAT frames carry a WCS too, but it describes the dispersion
+        axis, not sky orientation - rotating by it can turn a long thin spectrum on its side.'''
+        cd = lco_cd(90.0)
+        for obstype in ('SPECTRUM', 'ARC', 'LAMPFLAT'):
+            with self.subTest(obstype=obstype):
+                header = header_with_cd(cd, OBSTYPE=obstype)
+                self.assertIsNone(orientation_transform(header))
+        header = header_with_cd(cd, OBSTYPE='EXPOSE')
+        self.assertIsNotNone(orientation_transform(header))
+
 
 class TestOrientImage(unittest.TestCase):
 

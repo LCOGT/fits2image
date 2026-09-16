@@ -24,6 +24,10 @@ MIN_DETERMINANT = 1e-20
 # transform and take the flip_v fallback.
 DERIVE_FROM_HEADER = 'derive from header'
 
+# These image types only carry a prototype WCS and rotating a spectrum to 
+# "north" up can turn it on its side.
+NON_IMAGING_OBSTYPES = ('SPECTRUM', 'ARC', 'LAMPFLAT')
+
 
 def get_cd_matrix(header):
     ''' Read the CD matrix out of a FITS header.
@@ -49,9 +53,13 @@ def orientation_transform(header):
     ''' Work out the transform that puts north up and east left, to the nearest 90 degrees.
     :param header: FITS header of the frame
     :return: (mirror, k) - mirror the image left-right if mirror is True, THEN apply k
-             counter-clockwise quarter turns. None if there is no usable WCS, so that
-             callers can fall back to their previous behaviour.
+             counter-clockwise quarter turns. None if there is no usable WCS, or the frame
+             is a spectrum (see NON_IMAGING_OBSTYPES), so that callers can fall back to
+             their previous behaviour.
     '''
+    if header is not None and header.get('OBSTYPE') in NON_IMAGING_OBSTYPES:
+        return None
+
     cd = get_cd_matrix(header)
     if cd is None:
         return None
