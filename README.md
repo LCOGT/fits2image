@@ -356,3 +356,4 @@ Release history
   A frame with no WCS falls back to a fixed vertical flip.
   A quarter turn swaps the width and height of a non-square frame,
   so the output comes out in the other aspect.
+- v 1.1.0 - Skip WCS-driven orientation for spectra, which carry only a meaningless prototype WCS.
