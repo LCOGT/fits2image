@@ -51,7 +51,7 @@ Choose the function that fits your task:
 - get_scaled_image: get a Pillow image to resize, edit or save yourself.
 
 File conversion API (fits2image.conversions)
-------------------------------------------
+--------------------------------------------
 
 ### Converting an image: fits_to_img
 
@@ -221,7 +221,7 @@ success = multi_fits_to_img(
 ```
 
 In-memory images and scaling (fits2image.scaling)
-------------------------------------------------
+-------------------------------------------------
 
 ### Getting a Pillow image: get_scaled_image
 
@@ -287,7 +287,7 @@ stack_images(images_to_stack). It takes the images in red, green, blue order
 and returns a color Pillow Image, using centered crops if their sizes differ.
 
 Orientation (fits2image.orientation)
------------------------------------
+------------------------------------
 
 Since 1.0.0, conversions and get_scaled_image orient images toward north up and
 east left using CD1_1, CD1_2, CD2_1 and CD2_2. Rotation is snapped to the nearest
@@ -340,18 +340,18 @@ Release history
 - v 0.3.0 - Add median filter support
 - v 0.3.1 - Add support for multi extension fits files
 - v 0.3.2 - Fix bug in multi extension fits handling
-- V 0.4.0 - Use astropy instead of cfitsio
-- V 0.4.2 - Remove dependency on filesystem paths
-- V 0.4.3 - Fix memory leak
-- V 0.4.4 - Fix for images where the zeroth HDU has shape (0,0)
-- V 0.4.5 - Add github actions to push to PyPI
-- V 0.4.6 - No functional change
-- V 0.4.7 - No functional change
-- V 0.4.8 - Add fits_to_tif and fits_to_jpg convenience functions
-- V 0.4.9 - Allow fits_to_img to take a list of zmin and zmax parameters (one for each color channel) when creating an RGB stack.
-- V 0.4.10 - Crop fallback whens stacking images that can't be aligned and have different dimensions
-- V 0.4.11 - Allow a gamma adjustment to be passed through to the color stacking path
-- V 1.0.0 - Output images are oriented north up and east left from the frame's CD matrix, snapped
+- v 0.4.0 - Use astropy instead of cfitsio
+- v 0.4.2 - Remove dependency on filesystem paths
+- v 0.4.3 - Fix memory leak
+- v 0.4.4 - Fix for images where the zeroth HDU has shape (0,0)
+- v 0.4.5 - Add github actions to push to PyPI
+- v 0.4.6 - No functional change
+- v 0.4.7 - No functional change
+- v 0.4.8 - Add fits_to_tif and fits_to_jpg convenience functions
+- v 0.4.9 - Allow fits_to_img to take a list of zmin and zmax parameters (one for each color channel) when creating an RGB stack.
+- v 0.4.10 - Crop fallback whens stacking images that can't be aligned and have different dimensions
+- v 0.4.11 - Allow a gamma adjustment to be passed through to the color stacking path
+- v 1.0.0 - Output images are oriented north up and east left from the frame's CD matrix, snapped
   to the nearest 90 degrees. This changes the output of all callers so bumping a major version.
   A frame with no WCS falls back to a fixed vertical flip.
   A quarter turn swaps the width and height of a non-square frame,
